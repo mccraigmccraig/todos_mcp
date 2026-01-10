@@ -5,6 +5,8 @@ defmodule TodosMcp.Todo do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+
   schema "todos" do
     field(:title, :string)
     field(:description, :string, default: "")
@@ -18,7 +20,7 @@ defmodule TodosMcp.Todo do
   end
 
   @required_fields [:title]
-  @optional_fields [:description, :completed, :priority, :due_date, :tags, :position]
+  @optional_fields [:id, :description, :completed, :priority, :due_date, :tags, :position]
 
   @doc false
   def changeset(todo, attrs) do

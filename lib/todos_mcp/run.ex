@@ -22,7 +22,7 @@ defmodule TodosMcp.Run do
   use Skuld.Syntax
 
   alias Skuld.Comp
-  alias Skuld.Effects.{Command, Query, EctoPersist, Throw}
+  alias Skuld.Effects.{Command, Query, EctoPersist, Fresh, Throw}
   alias TodosMcp.{Repo, DomainHandler, DataAccess}
 
   @doc """
@@ -39,6 +39,7 @@ defmodule TodosMcp.Run do
     |> Command.with_handler(&DomainHandler.handle/1)
     |> Query.with_handler(%{DataAccess.Impl => :direct})
     |> EctoPersist.with_handler(Repo)
+    |> Fresh.with_uuid7_handler()
     |> Throw.with_handler()
     |> Comp.run()
     |> extract_result()

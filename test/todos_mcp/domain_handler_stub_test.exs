@@ -6,40 +6,51 @@ defmodule TodosMcp.DomainHandlerStubTest do
 
   use Skuld.Syntax
   alias Skuld.Comp
-  alias Skuld.Effects.{Command, Query, Throw}
+  alias Skuld.Effects.{Command, Query, Fresh, Throw}
   alias Skuld.Effects.EctoPersist
   alias TodosMcp.{DomainHandler, DataAccess, Todo}
+
+  # Fixed UUIDs for testing
+  @uuid1 "550e8400-e29b-41d4-a716-446655440001"
+  @uuid2 "550e8400-e29b-41d4-a716-446655440002"
+  @uuid_not_found "550e8400-e29b-41d4-a716-446655449999"
 
   alias TodosMcp.Commands.{CreateTodo, UpdateTodo, ToggleTodo, DeleteTodo}
   alias TodosMcp.Queries.{GetTodo, ListTodos}
 
   describe "CreateTodo command" do
-    test "inserts a new todo" do
+    test "inserts a new todo with generated UUID" do
       cmd = %CreateTodo{title: "Test Todo", description: "A description"}
+
+      # Use a fixed namespace for deterministic UUID generation
+      namespace = "test-create-todo"
 
       {{:ok, todo}, calls} =
         Command.execute(cmd)
         |> Command.with_handler(&DomainHandler.handle/1)
         |> EctoPersist.with_test_handler(fn
-          %EctoPersist.Insert{input: cs} ->
-            cs |> Ecto.Changeset.apply_changes() |> Map.put(:id, 42)
+          %EctoPersist.Insert{input: cs} -> Ecto.Changeset.apply_changes(cs)
         end)
+        |> Fresh.with_test_handler(namespace: namespace)
         |> Throw.with_handler()
         |> Comp.run!()
 
-      assert todo.id == 42
+      # ID should be a UUID string (deterministic from namespace)
+      assert is_binary(todo.id)
+      assert String.length(todo.id) == 36
       assert todo.title == "Test Todo"
       assert todo.description == "A description"
 
       assert [{:insert, changeset}] = calls
       assert changeset.changes.title == "Test Todo"
+      assert changeset.changes.id == todo.id
     end
   end
 
   describe "UpdateTodo command" do
     test "updates an existing todo" do
       existing_todo = %Todo{
-        id: 1,
+        id: @uuid1,
         title: "Old Title",
         description: "Old description",
         completed: false,
@@ -47,11 +58,11 @@ defmodule TodosMcp.DomainHandlerStubTest do
         tags: []
       }
 
-      cmd = %UpdateTodo{id: 1, title: "New Title"}
+      cmd = %UpdateTodo{id: @uuid1, title: "New Title"}
 
       # Stub the DataAccess.get_todo! query
       query_stubs = %{
-        Query.key(DataAccess.Impl, :get_todo!, %{id: 1}) => existing_todo
+        Query.key(DataAccess.Impl, :get_todo!, %{id: @uuid1}) => existing_todo
       }
 
       {{:ok, todo}, calls} =
@@ -64,7 +75,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
         |> Throw.with_handler()
         |> Comp.run!()
 
-      assert todo.id == 1
+      assert todo.id == @uuid1
       assert todo.title == "New Title"
       assert todo.description == "Old description"
 
@@ -76,17 +87,17 @@ defmodule TodosMcp.DomainHandlerStubTest do
   describe "ToggleTodo command" do
     test "toggles completed status" do
       existing_todo = %Todo{
-        id: 1,
+        id: @uuid1,
         title: "Test",
         completed: false,
         priority: :medium,
         tags: []
       }
 
-      cmd = %ToggleTodo{id: 1}
+      cmd = %ToggleTodo{id: @uuid1}
 
       query_stubs = %{
-        Query.key(DataAccess.Impl, :get_todo!, %{id: 1}) => existing_todo
+        Query.key(DataAccess.Impl, :get_todo!, %{id: @uuid1}) => existing_todo
       }
 
       {{:ok, todo}, calls} =
@@ -107,17 +118,17 @@ defmodule TodosMcp.DomainHandlerStubTest do
   describe "DeleteTodo command" do
     test "deletes an existing todo" do
       existing_todo = %Todo{
-        id: 1,
+        id: @uuid1,
         title: "To Delete",
         completed: false,
         priority: :medium,
         tags: []
       }
 
-      cmd = %DeleteTodo{id: 1}
+      cmd = %DeleteTodo{id: @uuid1}
 
       query_stubs = %{
-        Query.key(DataAccess.Impl, :get_todo!, %{id: 1}) => existing_todo
+        Query.key(DataAccess.Impl, :get_todo!, %{id: @uuid1}) => existing_todo
       }
 
       {{:ok, deleted}, calls} =
@@ -130,7 +141,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
         |> Throw.with_handler()
         |> Comp.run!()
 
-      assert deleted.id == 1
+      assert deleted.id == @uuid1
       assert [{:delete, ^existing_todo}] = calls
     end
   end
@@ -138,17 +149,17 @@ defmodule TodosMcp.DomainHandlerStubTest do
   describe "GetTodo query" do
     test "returns todo when found" do
       existing_todo = %Todo{
-        id: 1,
+        id: @uuid1,
         title: "Found",
         completed: false,
         priority: :medium,
         tags: []
       }
 
-      query = %GetTodo{id: 1}
+      query = %GetTodo{id: @uuid1}
 
       query_stubs = %{
-        Query.key(DataAccess.Impl, :get_todo, %{id: 1}) => existing_todo
+        Query.key(DataAccess.Impl, :get_todo, %{id: @uuid1}) => existing_todo
       }
 
       # Queries don't use EctoPersist, so we just need Query stub
@@ -159,15 +170,15 @@ defmodule TodosMcp.DomainHandlerStubTest do
         |> Throw.with_handler()
         |> Comp.run!()
 
-      assert todo.id == 1
+      assert todo.id == @uuid1
       assert todo.title == "Found"
     end
 
     test "returns error when not found" do
-      query = %GetTodo{id: 999}
+      query = %GetTodo{id: @uuid_not_found}
 
       query_stubs = %{
-        Query.key(DataAccess.Impl, :get_todo, %{id: 999}) => nil
+        Query.key(DataAccess.Impl, :get_todo, %{id: @uuid_not_found}) => nil
       }
 
       result =
@@ -184,8 +195,8 @@ defmodule TodosMcp.DomainHandlerStubTest do
   describe "ListTodos query" do
     test "returns all todos with default options" do
       todos = [
-        %Todo{id: 1, title: "First", completed: false, priority: :medium, tags: []},
-        %Todo{id: 2, title: "Second", completed: true, priority: :high, tags: []}
+        %Todo{id: @uuid1, title: "First", completed: false, priority: :medium, tags: []},
+        %Todo{id: @uuid2, title: "Second", completed: true, priority: :high, tags: []}
       ]
 
       query = %ListTodos{}

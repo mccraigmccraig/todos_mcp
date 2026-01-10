@@ -23,7 +23,7 @@ defmodule TodosMcp.DomainHandler do
   use Skuld.Syntax
 
   alias TodosMcp.{Todo, DataAccess}
-  alias Skuld.Effects.EctoPersist
+  alias Skuld.Effects.{EctoPersist, Fresh}
 
   alias TodosMcp.Commands.{
     CreateTodo,
@@ -47,7 +47,10 @@ defmodule TodosMcp.DomainHandler do
 
   def handle(%CreateTodo{} = cmd) do
     comp do
+      id <- Fresh.fresh_uuid()
+
       attrs = %{
+        id: id,
         title: cmd.title,
         description: cmd.description,
         priority: cmd.priority,
