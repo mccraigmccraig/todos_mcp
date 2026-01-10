@@ -4,6 +4,7 @@ defmodule TodosMcp.Run do
 
   Sets up the layered handler chain:
   - Command effect → DomainHandler (business logic)
+  - Reader effect → CommandContext (tenant isolation)
   - Query effect → DataAccess.Impl (data access)
   - EctoPersist effect → Repo (persistence)
   - Throw effect → error handling
@@ -21,12 +22,20 @@ defmodule TodosMcp.Run do
       # Or per-call
       Run.execute(operation, mode: :in_memory)
 
+  ## Multi-tenancy
+
+  Pass a context or tenant_id to scope operations:
+
+      Run.execute(operation, context: %CommandContext{tenant_id: "tenant-123"})
+      # Or shorthand:
+      Run.execute(operation, tenant_id: "tenant-123")
+
   ## Example
 
       alias TodosMcp.Run
       alias TodosMcp.Commands.CreateTodo
 
-      case Run.execute(%CreateTodo{title: "Buy milk"}) do
+      case Run.execute(%CreateTodo{title: "Buy milk"}, tenant_id: "my-tenant") do
         {:ok, todo} -> # success
         {:error, reason} -> # failure
       end
@@ -35,8 +44,8 @@ defmodule TodosMcp.Run do
   use Skuld.Syntax
 
   alias Skuld.Comp
-  alias Skuld.Effects.{Command, Query, EctoPersist, Fresh, Throw}
-  alias TodosMcp.{Repo, DomainHandler, DataAccess, InMemoryPersist}
+  alias Skuld.Effects.{Command, Query, EctoPersist, Fresh, Throw, Reader}
+  alias TodosMcp.{Repo, DomainHandler, DataAccess, InMemoryPersist, CommandContext}
 
   @doc """
   Execute a domain operation (command or query).
@@ -44,23 +53,34 @@ defmodule TodosMcp.Run do
   ## Options
 
   - `:mode` - Storage mode: `:database` (default) or `:in_memory`
+  - `:context` - CommandContext struct with tenant_id
+  - `:tenant_id` - Shorthand for context (creates CommandContext)
 
   Returns `{:ok, result}` on success or `{:error, reason}` on failure.
   """
   @spec execute(struct(), keyword()) :: {:ok, term()} | {:error, term()}
   def execute(operation, opts \\ []) do
     mode = Keyword.get(opts, :mode, storage_mode())
+    context = get_context(opts)
 
     comp do
       result <- Command.execute(operation)
       result
     end
     |> Command.with_handler(&DomainHandler.handle/1)
+    |> Reader.with_handler(context, tag: CommandContext)
     |> with_storage_handlers(mode)
     |> Fresh.with_uuid7_handler()
     |> Throw.with_handler()
     |> Comp.run()
     |> extract_result()
+  end
+
+  defp get_context(opts) do
+    case Keyword.get(opts, :context) do
+      %CommandContext{} = ctx -> ctx
+      nil -> CommandContext.new(Keyword.get(opts, :tenant_id, "default"))
+    end
   end
 
   @doc """

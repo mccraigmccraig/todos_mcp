@@ -31,49 +31,47 @@ defmodule TodosMcp.DataAccess.InMemoryImpl do
     apply(__MODULE__, name, [params])
   end
 
-  def get_todo(%{id: id}) do
+  def get_todo(%{tenant_id: tenant_id, id: id}) do
     case @store.get(id) do
       nil -> {:error, {:not_found, Todo, id}}
-      todo -> {:ok, todo}
+      todo when todo.tenant_id == tenant_id -> {:ok, todo}
+      _todo -> {:error, {:not_found, Todo, id}}
     end
   end
 
   def list_todos(opts) do
+    tenant_id = Map.fetch!(opts, :tenant_id)
     filter = Map.get(opts, :filter, :all)
     sort_by = Map.get(opts, :sort_by, :inserted_at)
     sort_order = Map.get(opts, :sort_order, :desc)
 
     todos =
       @store.all()
+      |> Enum.filter(fn todo -> todo.tenant_id == tenant_id end)
       |> apply_filter(filter)
       |> apply_sort(sort_by, sort_order)
 
     {:ok, todos}
   end
 
-  def list_incomplete(%{}) do
-    todos = @store.filter(fn todo -> !todo.completed end)
+  def list_incomplete(%{tenant_id: tenant_id}) do
+    todos = @store.filter(fn todo -> todo.tenant_id == tenant_id && !todo.completed end)
     {:ok, todos}
   end
 
-  def list_completed(%{}) do
-    todos = @store.filter(fn todo -> todo.completed end)
+  def list_completed(%{tenant_id: tenant_id}) do
+    todos = @store.filter(fn todo -> todo.tenant_id == tenant_id && todo.completed end)
     {:ok, todos}
   end
 
-  def search_todos(%{query: search_query, limit: limit}) do
+  def search_todos(%{tenant_id: tenant_id, query: search_query, limit: limit}) do
     search_pattern = String.downcase(search_query)
 
     todos =
       @store.all()
       |> Enum.filter(fn todo ->
-        title_match = todo.title && String.contains?(String.downcase(todo.title), search_pattern)
-
-        desc_match =
-          todo.description &&
-            String.contains?(String.downcase(todo.description), search_pattern)
-
-        title_match || desc_match
+        todo.tenant_id == tenant_id &&
+          (title_match?(todo, search_pattern) || desc_match?(todo, search_pattern))
       end)
       |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
       |> Enum.take(limit)
@@ -81,8 +79,16 @@ defmodule TodosMcp.DataAccess.InMemoryImpl do
     {:ok, todos}
   end
 
-  def get_stats(%{}) do
-    all = @store.all()
+  defp title_match?(todo, pattern) do
+    todo.title && String.contains?(String.downcase(todo.title), pattern)
+  end
+
+  defp desc_match?(todo, pattern) do
+    todo.description && String.contains?(String.downcase(todo.description), pattern)
+  end
+
+  def get_stats(%{tenant_id: tenant_id}) do
+    all = @store.filter(fn todo -> todo.tenant_id == tenant_id end)
     total = length(all)
     completed = Enum.count(all, & &1.completed)
     active = total - completed

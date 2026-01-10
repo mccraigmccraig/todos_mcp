@@ -19,8 +19,11 @@ defmodule TodosMcpWeb.TodoLive do
 
   @impl true
   def mount(_params, session, socket) do
-    {:ok, todos} = Run.execute(%ListTodos{})
-    {:ok, stats} = Run.execute(%GetStats{})
+    # Get tenant_id from session or use default
+    tenant_id = session["tenant_id"] || "default"
+
+    {:ok, todos} = Run.execute(%ListTodos{}, tenant_id: tenant_id)
+    {:ok, stats} = Run.execute(%GetStats{}, tenant_id: tenant_id)
 
     # Get API key from session (string key in LiveView) or environment
     session_api_key = session["api_key"]
@@ -42,7 +45,7 @@ defmodule TodosMcpWeb.TodoLive do
     # Initialize conversation runner (suspended at :await_user_input)
     runner =
       if api_key do
-        case ConversationRunner.start(api_key: api_key) do
+        case ConversationRunner.start(api_key: api_key, tenant_id: tenant_id) do
           {:ok, runner} -> runner
           {:error, _reason} -> nil
         end
@@ -52,6 +55,7 @@ defmodule TodosMcpWeb.TodoLive do
 
     {:ok,
      assign(socket,
+       tenant_id: tenant_id,
        todos: todos,
        stats: stats,
        filter: :all,
@@ -172,7 +176,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("create", %{"title" => title}, socket) when title != "" do
-    case Run.execute(%CreateTodo{title: title}) do
+    case run(socket, %CreateTodo{title: title}) do
       {:ok, _todo} ->
         {:noreply, socket |> assign(new_todo_title: "") |> reload_todos()}
 
@@ -186,7 +190,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("toggle", %{"id" => id}, socket) do
-    case Run.execute(%ToggleTodo{id: id}) do
+    case run(socket, %ToggleTodo{id: id}) do
       {:ok, _todo} ->
         {:noreply, reload_todos(socket)}
 
@@ -196,7 +200,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
-    case Run.execute(%DeleteTodo{id: id}) do
+    case run(socket, %DeleteTodo{id: id}) do
       {:ok, _todo} ->
         {:noreply, reload_todos(socket)}
 
@@ -206,7 +210,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("clear_completed", _params, socket) do
-    case Run.execute(%ClearCompleted{}) do
+    case run(socket, %ClearCompleted{}) do
       {:ok, _result} ->
         {:noreply, reload_todos(socket)}
 
@@ -216,7 +220,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("complete_all", _params, socket) do
-    case Run.execute(%CompleteAll{}) do
+    case run(socket, %CompleteAll{}) do
       {:ok, _result} ->
         {:noreply, reload_todos(socket)}
 
@@ -227,7 +231,7 @@ defmodule TodosMcpWeb.TodoLive do
 
   def handle_event("filter", %{"filter" => filter}, socket) do
     filter_atom = String.to_existing_atom(filter)
-    {:ok, todos} = Run.execute(%ListTodos{filter: filter_atom})
+    {:ok, todos} = run(socket, %ListTodos{filter: filter_atom})
 
     {:noreply, assign(socket, todos: todos, filter: filter_atom)}
   end
@@ -323,9 +327,14 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   defp reload_todos(socket) do
-    {:ok, todos} = Run.execute(%ListTodos{filter: socket.assigns.filter})
-    {:ok, stats} = Run.execute(%GetStats{})
+    {:ok, todos} = run(socket, %ListTodos{filter: socket.assigns.filter})
+    {:ok, stats} = run(socket, %GetStats{})
     assign(socket, todos: todos, stats: stats)
+  end
+
+  # Helper to run operations with tenant_id from socket
+  defp run(socket, operation) do
+    Run.execute(operation, tenant_id: socket.assigns.tenant_id)
   end
 
   # Transcribe audio using Groq Whisper via the Transcribe effect

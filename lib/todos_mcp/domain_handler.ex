@@ -5,6 +5,7 @@ defmodule TodosMcp.DomainHandler do
   Handles all domain operations using Skuld effects:
   - DataAccess (via Query effect) for reads
   - EctoPersist for writes
+  - Reader (CommandContext) for tenant isolation
   - EventAccumulator for domain events (future)
 
   This module is used with `Skuld.Effects.Command.with_handler/2`:
@@ -14,6 +15,7 @@ defmodule TodosMcp.DomainHandler do
         result
       end
       |> Command.with_handler(&DomainHandler.handle/1)
+      |> Reader.with_handler(%CommandContext{tenant_id: "tenant-123"}, tag: CommandContext)
       |> Query.with_handler(%{DataAccess.Impl => :direct})
       |> EctoPersist.with_handler(Repo)
       |> Throw.with_handler()
@@ -22,8 +24,8 @@ defmodule TodosMcp.DomainHandler do
 
   use Skuld.Syntax
 
-  alias TodosMcp.{Todo, DataAccess}
-  alias Skuld.Effects.{EctoPersist, Fresh}
+  alias TodosMcp.{Todo, DataAccess, CommandContext}
+  alias Skuld.Effects.{EctoPersist, Fresh, Reader}
 
   alias TodosMcp.Commands.{
     CreateTodo,
@@ -46,10 +48,12 @@ defmodule TodosMcp.DomainHandler do
   #############################################################################
 
   defcomp handle(%CreateTodo{} = cmd) do
+    ctx <- Reader.ask(CommandContext)
     id <- Fresh.fresh_uuid()
 
     attrs = %{
       id: id,
+      tenant_id: ctx.tenant_id,
       title: cmd.title,
       description: cmd.description,
       priority: cmd.priority,
@@ -63,7 +67,8 @@ defmodule TodosMcp.DomainHandler do
   end
 
   defcomp handle(%UpdateTodo{id: id} = cmd) do
-    todo <- DataAccess.get_todo!(id)
+    ctx <- Reader.ask(CommandContext)
+    todo <- DataAccess.get_todo!(ctx.tenant_id, id)
 
     attrs =
       %{
@@ -82,27 +87,31 @@ defmodule TodosMcp.DomainHandler do
   end
 
   defcomp handle(%ToggleTodo{id: id}) do
-    todo <- DataAccess.get_todo!(id)
+    ctx <- Reader.ask(CommandContext)
+    todo <- DataAccess.get_todo!(ctx.tenant_id, id)
     changeset = Todo.changeset(todo, %{completed: not todo.completed})
     updated <- EctoPersist.update(changeset)
     {:ok, updated}
   end
 
   defcomp handle(%DeleteTodo{id: id}) do
-    todo <- DataAccess.get_todo!(id)
+    ctx <- Reader.ask(CommandContext)
+    todo <- DataAccess.get_todo!(ctx.tenant_id, id)
     result <- EctoPersist.delete(todo)
     result
   end
 
   defcomp handle(%CompleteAll{}) do
-    todos <- DataAccess.list_incomplete()
+    ctx <- Reader.ask(CommandContext)
+    todos <- DataAccess.list_incomplete(ctx.tenant_id)
     changesets = Enum.map(todos, &Todo.changeset(&1, %{completed: true}))
     {count, _} <- EctoPersist.update_all(Todo, changesets)
     {:ok, %{updated: count}}
   end
 
   defcomp handle(%ClearCompleted{}) do
-    todos <- DataAccess.list_completed()
+    ctx <- Reader.ask(CommandContext)
+    todos <- DataAccess.list_completed(ctx.tenant_id)
     {count, _} <- EctoPersist.delete_all(Todo, todos)
     {:ok, %{deleted: count}}
   end
@@ -112,12 +121,22 @@ defmodule TodosMcp.DomainHandler do
   #############################################################################
 
   defcomp handle(%ListTodos{filter: filter, sort_by: sort_by, sort_order: sort_order}) do
-    todos <- DataAccess.list_todos(%{filter: filter, sort_by: sort_by, sort_order: sort_order})
+    ctx <- Reader.ask(CommandContext)
+
+    todos <-
+      DataAccess.list_todos(%{
+        tenant_id: ctx.tenant_id,
+        filter: filter,
+        sort_by: sort_by,
+        sort_order: sort_order
+      })
+
     {:ok, todos}
   end
 
   defcomp handle(%GetTodo{id: id}) do
-    result <- DataAccess.get_todo(id)
+    ctx <- Reader.ask(CommandContext)
+    result <- DataAccess.get_todo(ctx.tenant_id, id)
 
     case result do
       {:ok, todo} -> {:ok, todo}
@@ -126,12 +145,14 @@ defmodule TodosMcp.DomainHandler do
   end
 
   defcomp handle(%SearchTodos{query: query, limit: limit}) do
-    todos <- DataAccess.search_todos(query, limit)
+    ctx <- Reader.ask(CommandContext)
+    todos <- DataAccess.search_todos(ctx.tenant_id, query, limit)
     {:ok, todos}
   end
 
   defcomp handle(%GetStats{}) do
-    stats <- DataAccess.get_stats()
+    ctx <- Reader.ask(CommandContext)
+    stats <- DataAccess.get_stats(ctx.tenant_id)
     {:ok, stats}
   end
 end

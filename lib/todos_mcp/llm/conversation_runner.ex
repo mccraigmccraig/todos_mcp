@@ -79,6 +79,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
   @spec start(keyword()) :: {:ok, t()} | {:error, term()}
   def start(opts) do
     api_key = Keyword.fetch!(opts, :api_key)
+    tenant_id = Keyword.get(opts, :tenant_id, "default")
     system = Keyword.get(opts, :system)
     model = Keyword.get(opts, :model)
 
@@ -90,6 +91,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
 
     config = %{
       api_key: api_key,
+      tenant_id: tenant_id,
       system: system,
       model: model,
       tools: tools
@@ -152,7 +154,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
 
       {:execute_tools, tool_requests} ->
         # Execute tools and continue
-        results = execute_tools(tool_requests)
+        results = execute_tools(tool_requests, runner.config.tenant_id)
         {next_result, _env} = resume.(results)
         process_yields(next_result, runner)
 
@@ -208,11 +210,11 @@ defmodule TodosMcp.Llm.ConversationRunner do
   end
 
   # Execute tool requests through the domain stack
-  defp execute_tools(tool_requests) do
-    Enum.map(tool_requests, &execute_single_tool/1)
+  defp execute_tools(tool_requests, tenant_id) do
+    Enum.map(tool_requests, &execute_single_tool(&1, tenant_id))
   end
 
-  defp execute_single_tool(%{name: name, input: input}) do
+  defp execute_single_tool(%{name: name, input: input}, tenant_id) do
     case Tools.find_module(name) do
       nil ->
         {:error, "Unknown tool: #{name}"}
@@ -220,7 +222,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
       module ->
         try do
           operation = module.from_json(input)
-          Run.execute(operation)
+          Run.execute(operation, tenant_id: tenant_id)
         rescue
           e -> {:error, Exception.message(e)}
         end

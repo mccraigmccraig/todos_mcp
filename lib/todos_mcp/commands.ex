@@ -45,7 +45,7 @@ defmodule TodosMcp.Commands do
     defstruct [:id, :title, :description, :priority, :due_date, :tags]
 
     @type t :: %__MODULE__{
-            id: integer(),
+            id: String.t(),
             title: String.t() | nil,
             description: String.t() | nil,
             priority: :low | :medium | :high | nil,
@@ -81,7 +81,7 @@ defmodule TodosMcp.Commands do
     @derive Jason.Encoder
     defstruct [:id]
 
-    @type t :: %__MODULE__{id: integer()}
+    @type t :: %__MODULE__{id: String.t()}
 
     def from_json(map) when is_map(map) do
       %__MODULE__{id: Map.fetch!(map, "id")}
@@ -93,7 +93,7 @@ defmodule TodosMcp.Commands do
     @derive Jason.Encoder
     defstruct [:id]
 
-    @type t :: %__MODULE__{id: integer()}
+    @type t :: %__MODULE__{id: String.t()}
 
     def from_json(map) when is_map(map) do
       %__MODULE__{id: Map.fetch!(map, "id")}

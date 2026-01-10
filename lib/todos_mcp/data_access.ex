@@ -41,33 +41,38 @@ defmodule TodosMcp.DataAccess do
   # based on storage mode (database -> Impl direct, in_memory -> InMemoryImpl)
 
   # Get a single todo by ID (returns {:ok, todo} or {:error, :not_found})
-  def get_todo(id), do: Query.request(__MODULE__.Impl, :get_todo, %{id: id})
+  def get_todo(tenant_id, id),
+    do: Query.request(__MODULE__.Impl, :get_todo, %{tenant_id: tenant_id, id: id})
 
   # Get a single todo by ID (throws if not found)
-  def get_todo!(id), do: Query.request!(__MODULE__.Impl, :get_todo, %{id: id})
+  def get_todo!(tenant_id, id),
+    do: Query.request!(__MODULE__.Impl, :get_todo, %{tenant_id: tenant_id, id: id})
 
   # List todos with optional filtering and sorting
-  def list_todos(opts \\ %{})
-
-  def list_todos(opts) when is_list(opts), do: list_todos(Map.new(opts))
-
   def list_todos(opts) when is_map(opts) do
     Query.request!(__MODULE__.Impl, :list_todos, opts)
   end
 
-  # List only incomplete todos
-  def list_incomplete, do: Query.request!(__MODULE__.Impl, :list_incomplete, %{})
+  # List only incomplete todos for a tenant
+  def list_incomplete(tenant_id),
+    do: Query.request!(__MODULE__.Impl, :list_incomplete, %{tenant_id: tenant_id})
 
-  # List only completed todos
-  def list_completed, do: Query.request!(__MODULE__.Impl, :list_completed, %{})
+  # List only completed todos for a tenant
+  def list_completed(tenant_id),
+    do: Query.request!(__MODULE__.Impl, :list_completed, %{tenant_id: tenant_id})
 
   # Search todos by title/description
-  def search_todos(query, limit \\ 20) do
-    Query.request!(__MODULE__.Impl, :search_todos, %{query: query, limit: limit})
+  def search_todos(tenant_id, query, limit \\ 20) do
+    Query.request!(__MODULE__.Impl, :search_todos, %{
+      tenant_id: tenant_id,
+      query: query,
+      limit: limit
+    })
   end
 
-  # Get statistics (total, active, completed counts)
-  def get_stats, do: Query.request!(__MODULE__.Impl, :get_stats, %{})
+  # Get statistics (total, active, completed counts) for a tenant
+  def get_stats(tenant_id),
+    do: Query.request!(__MODULE__.Impl, :get_stats, %{tenant_id: tenant_id})
 
   # Implementation module with actual Ecto queries.
   # All functions return {:ok, value} | {:error, reason} result tuples.
@@ -77,20 +82,22 @@ defmodule TodosMcp.DataAccess do
     import Ecto.Query
     alias TodosMcp.{Repo, Todo}
 
-    def get_todo(%{id: id}) do
-      case Repo.get(Todo, id) do
+    def get_todo(%{tenant_id: tenant_id, id: id}) do
+      case Repo.get_by(Todo, id: id, tenant_id: tenant_id) do
         nil -> {:error, {:not_found, Todo, id}}
         todo -> {:ok, todo}
       end
     end
 
     def list_todos(opts) do
+      tenant_id = Map.fetch!(opts, :tenant_id)
       filter = Map.get(opts, :filter, :all)
       sort_by = Map.get(opts, :sort_by, :inserted_at)
       sort_order = Map.get(opts, :sort_order, :desc)
 
       todos =
         Todo
+        |> where([t], t.tenant_id == ^tenant_id)
         |> apply_filter(filter)
         |> apply_sort(sort_by, sort_order)
         |> Repo.all()
@@ -98,28 +105,30 @@ defmodule TodosMcp.DataAccess do
       {:ok, todos}
     end
 
-    def list_incomplete(%{}) do
+    def list_incomplete(%{tenant_id: tenant_id}) do
       todos =
-        from(t in Todo, where: t.completed == false)
+        from(t in Todo, where: t.tenant_id == ^tenant_id and t.completed == false)
         |> Repo.all()
 
       {:ok, todos}
     end
 
-    def list_completed(%{}) do
+    def list_completed(%{tenant_id: tenant_id}) do
       todos =
-        from(t in Todo, where: t.completed == true)
+        from(t in Todo, where: t.tenant_id == ^tenant_id and t.completed == true)
         |> Repo.all()
 
       {:ok, todos}
     end
 
-    def search_todos(%{query: search_query, limit: limit}) do
+    def search_todos(%{tenant_id: tenant_id, query: search_query, limit: limit}) do
       search_pattern = "%#{search_query}%"
 
       todos =
         from(t in Todo,
-          where: ilike(t.title, ^search_pattern) or ilike(t.description, ^search_pattern),
+          where:
+            t.tenant_id == ^tenant_id and
+              (ilike(t.title, ^search_pattern) or ilike(t.description, ^search_pattern)),
           limit: ^limit,
           order_by: [desc: t.inserted_at]
         )
@@ -128,9 +137,10 @@ defmodule TodosMcp.DataAccess do
       {:ok, todos}
     end
 
-    def get_stats(%{}) do
-      total = Repo.aggregate(Todo, :count)
-      completed = Repo.aggregate(from(t in Todo, where: t.completed == true), :count)
+    def get_stats(%{tenant_id: tenant_id}) do
+      base_query = from(t in Todo, where: t.tenant_id == ^tenant_id)
+      total = Repo.aggregate(base_query, :count)
+      completed = Repo.aggregate(from(t in base_query, where: t.completed == true), :count)
       active = total - completed
 
       {:ok, %{total: total, active: active, completed: completed}}

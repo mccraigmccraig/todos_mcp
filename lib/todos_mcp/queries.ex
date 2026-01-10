@@ -33,7 +33,7 @@ defmodule TodosMcp.Queries do
     @derive Jason.Encoder
     defstruct [:id]
 
-    @type t :: %__MODULE__{id: integer()}
+    @type t :: %__MODULE__{id: String.t()}
 
     def from_json(map) when is_map(map) do
       %__MODULE__{id: Map.fetch!(map, "id")}

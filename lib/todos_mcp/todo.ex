@@ -9,6 +9,7 @@ defmodule TodosMcp.Todo do
   @derive {Jason.Encoder,
            only: [
              :id,
+             :tenant_id,
              :title,
              :description,
              :completed,
@@ -21,6 +22,7 @@ defmodule TodosMcp.Todo do
            ]}
 
   schema "todos" do
+    field(:tenant_id, :string)
     field(:title, :string)
     field(:description, :string, default: "")
     field(:completed, :boolean, default: false)
@@ -32,7 +34,7 @@ defmodule TodosMcp.Todo do
     timestamps(type: :utc_datetime)
   end
 
-  @required_fields [:title]
+  @required_fields [:tenant_id, :title]
   @optional_fields [:id, :description, :completed, :priority, :due_date, :tags, :position]
 
   @doc false
