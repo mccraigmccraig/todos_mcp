@@ -49,8 +49,8 @@ defmodule TodosMcp.DataAccess do
     do: Query.request!(__MODULE__.Impl, :get_todo, %{tenant_id: tenant_id, id: id})
 
   # List todos with optional filtering and sorting
-  def list_todos(opts) when is_map(opts) do
-    Query.request!(__MODULE__.Impl, :list_todos, opts)
+  def list_todos(tenant_id, opts \\ %{}) do
+    Query.request!(__MODULE__.Impl, :list_todos, Map.put(opts, :tenant_id, tenant_id))
   end
 
   # List only incomplete todos for a tenant
@@ -82,8 +82,11 @@ defmodule TodosMcp.DataAccess do
     import Ecto.Query
     alias TodosMcp.{Repo, Todo}
 
+    # Tenant-scoped base query - ensures all queries are filtered by tenant
+    defp scoped(tenant_id), do: from(t in Todo, where: t.tenant_id == ^tenant_id)
+
     def get_todo(%{tenant_id: tenant_id, id: id}) do
-      case Repo.get_by(Todo, id: id, tenant_id: tenant_id) do
+      case scoped(tenant_id) |> where([t], t.id == ^id) |> Repo.one() do
         nil -> {:error, {:not_found, Todo, id}}
         todo -> {:ok, todo}
       end
@@ -96,8 +99,7 @@ defmodule TodosMcp.DataAccess do
       sort_order = Map.get(opts, :sort_order, :desc)
 
       todos =
-        Todo
-        |> where([t], t.tenant_id == ^tenant_id)
+        scoped(tenant_id)
         |> apply_filter(filter)
         |> apply_sort(sort_by, sort_order)
         |> Repo.all()
@@ -107,7 +109,8 @@ defmodule TodosMcp.DataAccess do
 
     def list_incomplete(%{tenant_id: tenant_id}) do
       todos =
-        from(t in Todo, where: t.tenant_id == ^tenant_id and t.completed == false)
+        scoped(tenant_id)
+        |> where([t], t.completed == false)
         |> Repo.all()
 
       {:ok, todos}
@@ -115,7 +118,8 @@ defmodule TodosMcp.DataAccess do
 
     def list_completed(%{tenant_id: tenant_id}) do
       todos =
-        from(t in Todo, where: t.tenant_id == ^tenant_id and t.completed == true)
+        scoped(tenant_id)
+        |> where([t], t.completed == true)
         |> Repo.all()
 
       {:ok, todos}
@@ -125,22 +129,19 @@ defmodule TodosMcp.DataAccess do
       search_pattern = "%#{search_query}%"
 
       todos =
-        from(t in Todo,
-          where:
-            t.tenant_id == ^tenant_id and
-              (ilike(t.title, ^search_pattern) or ilike(t.description, ^search_pattern)),
-          limit: ^limit,
-          order_by: [desc: t.inserted_at]
-        )
+        scoped(tenant_id)
+        |> where([t], ilike(t.title, ^search_pattern) or ilike(t.description, ^search_pattern))
+        |> order_by([t], desc: t.inserted_at)
+        |> limit(^limit)
         |> Repo.all()
 
       {:ok, todos}
     end
 
     def get_stats(%{tenant_id: tenant_id}) do
-      base_query = from(t in Todo, where: t.tenant_id == ^tenant_id)
-      total = Repo.aggregate(base_query, :count)
-      completed = Repo.aggregate(from(t in base_query, where: t.completed == true), :count)
+      base = scoped(tenant_id)
+      total = Repo.aggregate(base, :count)
+      completed = Repo.aggregate(where(base, [t], t.completed == true), :count)
       active = total - completed
 
       {:ok, %{total: total, active: active, completed: completed}}

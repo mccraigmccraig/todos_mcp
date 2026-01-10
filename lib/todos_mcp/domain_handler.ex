@@ -124,8 +124,7 @@ defmodule TodosMcp.DomainHandler do
     ctx <- Reader.ask(CommandContext)
 
     todos <-
-      DataAccess.list_todos(%{
-        tenant_id: ctx.tenant_id,
+      DataAccess.list_todos(ctx.tenant_id, %{
         filter: filter,
         sort_by: sort_by,
         sort_order: sort_order

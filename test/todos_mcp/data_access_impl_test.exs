@@ -12,10 +12,16 @@ defmodule TodosMcp.DataAccess.ImplTest do
 
   alias TodosMcp.{Repo, Todo, DataAccess}
 
+  @test_tenant "test-tenant"
+
   # Helper to create a todo directly in the database
   defp create_todo!(attrs) do
     %Todo{}
-    |> Todo.changeset(Map.put(attrs, :id, Uniq.UUID.uuid7()))
+    |> Todo.changeset(
+      attrs
+      |> Map.put(:id, Uniq.UUID.uuid7())
+      |> Map.put(:tenant_id, @test_tenant)
+    )
     |> Repo.insert!()
   end
 
@@ -23,7 +29,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
     test "returns {:ok, todo} when found" do
       todo = create_todo!(%{title: "Test Todo"})
 
-      {:ok, result} = DataAccess.Impl.get_todo(%{id: todo.id})
+      {:ok, result} = DataAccess.Impl.get_todo(%{tenant_id: @test_tenant, id: todo.id})
 
       assert result.id == todo.id
       assert result.title == "Test Todo"
@@ -32,9 +38,17 @@ defmodule TodosMcp.DataAccess.ImplTest do
     test "returns {:error, :not_found} when not found" do
       non_existent_id = Uniq.UUID.uuid7()
 
-      result = DataAccess.Impl.get_todo(%{id: non_existent_id})
+      result = DataAccess.Impl.get_todo(%{tenant_id: @test_tenant, id: non_existent_id})
 
       assert {:error, {:not_found, TodosMcp.Todo, ^non_existent_id}} = result
+    end
+
+    test "does not return todos from other tenants" do
+      todo = create_todo!(%{title: "Test Todo"})
+
+      result = DataAccess.Impl.get_todo(%{tenant_id: "other-tenant", id: todo.id})
+
+      assert {:error, {:not_found, TodosMcp.Todo, _}} = result
     end
   end
 
@@ -43,7 +57,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       todo1 = create_todo!(%{title: "First"})
       todo2 = create_todo!(%{title: "Second"})
 
-      {:ok, result} = DataAccess.Impl.list_todos(%{})
+      {:ok, result} = DataAccess.Impl.list_todos(%{tenant_id: @test_tenant})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -55,7 +69,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       _completed = create_todo!(%{title: "Done", completed: true})
       active = create_todo!(%{title: "Active", completed: false})
 
-      {:ok, result} = DataAccess.Impl.list_todos(%{filter: :active})
+      {:ok, result} = DataAccess.Impl.list_todos(%{tenant_id: @test_tenant, filter: :active})
 
       assert length(result) == 1
       assert hd(result).id == active.id
@@ -65,7 +79,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       completed = create_todo!(%{title: "Done", completed: true})
       _active = create_todo!(%{title: "Active", completed: false})
 
-      {:ok, result} = DataAccess.Impl.list_todos(%{filter: :completed})
+      {:ok, result} = DataAccess.Impl.list_todos(%{tenant_id: @test_tenant, filter: :completed})
 
       assert length(result) == 1
       assert hd(result).id == completed.id
@@ -75,7 +89,8 @@ defmodule TodosMcp.DataAccess.ImplTest do
       create_todo!(%{title: "Zebra"})
       create_todo!(%{title: "Apple"})
 
-      {:ok, result} = DataAccess.Impl.list_todos(%{sort_by: :title, sort_order: :asc})
+      {:ok, result} =
+        DataAccess.Impl.list_todos(%{tenant_id: @test_tenant, sort_by: :title, sort_order: :asc})
 
       titles = Enum.map(result, & &1.title)
       assert titles == ["Apple", "Zebra"]
@@ -85,7 +100,8 @@ defmodule TodosMcp.DataAccess.ImplTest do
       create_todo!(%{title: "Apple"})
       create_todo!(%{title: "Zebra"})
 
-      {:ok, result} = DataAccess.Impl.list_todos(%{sort_by: :title, sort_order: :desc})
+      {:ok, result} =
+        DataAccess.Impl.list_todos(%{tenant_id: @test_tenant, sort_by: :title, sort_order: :desc})
 
       titles = Enum.map(result, & &1.title)
       assert titles == ["Zebra", "Apple"]
@@ -96,14 +112,27 @@ defmodule TodosMcp.DataAccess.ImplTest do
       create_todo!(%{title: "High", priority: :high})
       create_todo!(%{title: "Medium", priority: :medium})
 
-      {:ok, result} = DataAccess.Impl.list_todos(%{sort_by: :priority, sort_order: :asc})
+      {:ok, result} =
+        DataAccess.Impl.list_todos(%{
+          tenant_id: @test_tenant,
+          sort_by: :priority,
+          sort_order: :asc
+        })
 
       priorities = Enum.map(result, & &1.priority)
       assert priorities == [:high, :low, :medium]
     end
 
     test "returns empty list when no todos" do
-      {:ok, result} = DataAccess.Impl.list_todos(%{})
+      {:ok, result} = DataAccess.Impl.list_todos(%{tenant_id: @test_tenant})
+
+      assert result == []
+    end
+
+    test "only returns todos for the specified tenant" do
+      create_todo!(%{title: "My Todo"})
+
+      {:ok, result} = DataAccess.Impl.list_todos(%{tenant_id: "other-tenant"})
 
       assert result == []
     end
@@ -115,7 +144,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       incomplete2 = create_todo!(%{title: "Todo 2", completed: false})
       _completed = create_todo!(%{title: "Done", completed: true})
 
-      {:ok, result} = DataAccess.Impl.list_incomplete(%{})
+      {:ok, result} = DataAccess.Impl.list_incomplete(%{tenant_id: @test_tenant})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -127,7 +156,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       create_todo!(%{title: "Done 1", completed: true})
       create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = DataAccess.Impl.list_incomplete(%{})
+      {:ok, result} = DataAccess.Impl.list_incomplete(%{tenant_id: @test_tenant})
 
       assert result == []
     end
@@ -139,7 +168,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       completed1 = create_todo!(%{title: "Done 1", completed: true})
       completed2 = create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = DataAccess.Impl.list_completed(%{})
+      {:ok, result} = DataAccess.Impl.list_completed(%{tenant_id: @test_tenant})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -151,7 +180,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       create_todo!(%{title: "Todo 1", completed: false})
       create_todo!(%{title: "Todo 2", completed: false})
 
-      {:ok, result} = DataAccess.Impl.list_completed(%{})
+      {:ok, result} = DataAccess.Impl.list_completed(%{tenant_id: @test_tenant})
 
       assert result == []
     end
@@ -163,7 +192,8 @@ defmodule TodosMcp.DataAccess.ImplTest do
       match2 = create_todo!(%{title: "Buy eggs"})
       _no_match = create_todo!(%{title: "Walk dog"})
 
-      {:ok, result} = DataAccess.Impl.search_todos(%{query: "Buy", limit: 10})
+      {:ok, result} =
+        DataAccess.Impl.search_todos(%{tenant_id: @test_tenant, query: "Buy", limit: 10})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -175,7 +205,8 @@ defmodule TodosMcp.DataAccess.ImplTest do
       match = create_todo!(%{title: "Task", description: "Remember to buy milk"})
       _no_match = create_todo!(%{title: "Other", description: "Walk the dog"})
 
-      {:ok, result} = DataAccess.Impl.search_todos(%{query: "milk", limit: 10})
+      {:ok, result} =
+        DataAccess.Impl.search_todos(%{tenant_id: @test_tenant, query: "milk", limit: 10})
 
       assert length(result) == 1
       assert hd(result).id == match.id
@@ -184,7 +215,8 @@ defmodule TodosMcp.DataAccess.ImplTest do
     test "search is case insensitive" do
       match = create_todo!(%{title: "BUY MILK"})
 
-      {:ok, result} = DataAccess.Impl.search_todos(%{query: "buy milk", limit: 10})
+      {:ok, result} =
+        DataAccess.Impl.search_todos(%{tenant_id: @test_tenant, query: "buy milk", limit: 10})
 
       assert length(result) == 1
       assert hd(result).id == match.id
@@ -193,7 +225,8 @@ defmodule TodosMcp.DataAccess.ImplTest do
     test "respects limit" do
       for i <- 1..5, do: create_todo!(%{title: "Task #{i}"})
 
-      {:ok, result} = DataAccess.Impl.search_todos(%{query: "Task", limit: 3})
+      {:ok, result} =
+        DataAccess.Impl.search_todos(%{tenant_id: @test_tenant, query: "Task", limit: 3})
 
       assert length(result) == 3
     end
@@ -201,7 +234,8 @@ defmodule TodosMcp.DataAccess.ImplTest do
     test "returns empty list when no matches" do
       create_todo!(%{title: "Something else"})
 
-      {:ok, result} = DataAccess.Impl.search_todos(%{query: "nonexistent", limit: 10})
+      {:ok, result} =
+        DataAccess.Impl.search_todos(%{tenant_id: @test_tenant, query: "nonexistent", limit: 10})
 
       assert result == []
     end
@@ -213,13 +247,13 @@ defmodule TodosMcp.DataAccess.ImplTest do
       create_todo!(%{title: "Active 2", completed: false})
       create_todo!(%{title: "Done 1", completed: true})
 
-      {:ok, result} = DataAccess.Impl.get_stats(%{})
+      {:ok, result} = DataAccess.Impl.get_stats(%{tenant_id: @test_tenant})
 
       assert result == %{total: 3, active: 2, completed: 1}
     end
 
     test "returns zeros when no todos" do
-      {:ok, result} = DataAccess.Impl.get_stats(%{})
+      {:ok, result} = DataAccess.Impl.get_stats(%{tenant_id: @test_tenant})
 
       assert result == %{total: 0, active: 0, completed: 0}
     end
@@ -228,7 +262,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       create_todo!(%{title: "Active 1", completed: false})
       create_todo!(%{title: "Active 2", completed: false})
 
-      {:ok, result} = DataAccess.Impl.get_stats(%{})
+      {:ok, result} = DataAccess.Impl.get_stats(%{tenant_id: @test_tenant})
 
       assert result == %{total: 2, active: 2, completed: 0}
     end
@@ -237,7 +271,7 @@ defmodule TodosMcp.DataAccess.ImplTest do
       create_todo!(%{title: "Done 1", completed: true})
       create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = DataAccess.Impl.get_stats(%{})
+      {:ok, result} = DataAccess.Impl.get_stats(%{tenant_id: @test_tenant})
 
       assert result == %{total: 2, active: 0, completed: 2}
     end
