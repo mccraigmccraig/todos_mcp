@@ -64,6 +64,83 @@ const Hooks = {
         this.el.focus()
       }
     }
+  },
+  AudioRecorder: {
+    mounted() {
+      this.mediaRecorder = null
+      this.audioChunks = []
+      this.recording = false
+
+      this.el.addEventListener("click", () => this.toggleRecording())
+    },
+
+    async toggleRecording() {
+      if (this.recording) {
+        this.stopRecording()
+      } else {
+        await this.startRecording()
+      }
+    },
+
+    async startRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        
+        // Use webm format (widely supported, good compression)
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+          ? 'audio/webm;codecs=opus' 
+          : 'audio/webm'
+        
+        this.mediaRecorder = new MediaRecorder(stream, { mimeType })
+        this.audioChunks = []
+
+        this.mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            this.audioChunks.push(event.data)
+          }
+        }
+
+        this.mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(this.audioChunks, { type: mimeType })
+          this.sendAudio(audioBlob)
+          
+          // Stop all tracks to release microphone
+          stream.getTracks().forEach(track => track.stop())
+        }
+
+        this.mediaRecorder.start()
+        this.recording = true
+        this.el.classList.add("recording")
+        this.pushEvent("recording_started", {})
+      } catch (err) {
+        console.error("Failed to start recording:", err)
+        this.pushEvent("recording_error", { error: err.message })
+      }
+    },
+
+    stopRecording() {
+      if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+        this.mediaRecorder.stop()
+        this.recording = false
+        this.el.classList.remove("recording")
+      }
+    },
+
+    async sendAudio(blob) {
+      // Convert blob to base64
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        // reader.result is "data:audio/webm;base64,XXXXX"
+        // We want just the base64 part
+        const base64 = reader.result.split(',')[1]
+        this.pushEvent("audio_recorded", { 
+          audio: base64, 
+          format: "webm",
+          size: blob.size 
+        })
+      }
+      reader.readAsDataURL(blob)
+    }
   }
 }
 

@@ -11,6 +11,8 @@ defmodule TodosMcpWeb.TodoLive do
   alias TodosMcp.Llm.ConversationRunner
   alias TodosMcp.Commands.{CreateTodo, ToggleTodo, DeleteTodo, ClearCompleted, CompleteAll}
   alias TodosMcp.Queries.{ListTodos, GetStats}
+  alias TodosMcp.Effects.Transcribe
+  alias TodosMcp.Effects.Transcribe.GroqHandler
 
   @impl true
   def mount(_params, session, socket) do
@@ -28,6 +30,11 @@ defmodule TodosMcpWeb.TodoLive do
         env_api_key -> :env
         true -> nil
       end
+
+    # Groq API key for voice transcription (from session or environment)
+    session_groq_key = session["groq_api_key"]
+    env_groq_key = System.get_env("GROQ_API_KEY")
+    groq_api_key = session_groq_key || env_groq_key
 
     # Initialize conversation runner (suspended at :await_user_input)
     runner =
@@ -49,11 +56,15 @@ defmodule TodosMcpWeb.TodoLive do
        sidebar_open: true,
        api_key: api_key,
        api_key_source: api_key_source,
+       groq_api_key: groq_api_key,
        chat_messages: [],
        chat_input: "",
        chat_loading: false,
        chat_error: nil,
-       runner: runner
+       runner: runner,
+       # Voice recording state
+       is_recording: false,
+       is_transcribing: false
      )}
   end
 
@@ -107,6 +118,41 @@ defmodule TodosMcpWeb.TodoLive do
       end
 
     {:noreply, assign(socket, runner: runner, chat_messages: [], chat_error: nil)}
+  end
+
+  # Voice recording events
+  def handle_event("recording_started", _params, socket) do
+    {:noreply, assign(socket, is_recording: true, chat_error: nil)}
+  end
+
+  def handle_event("recording_error", %{"error" => error}, socket) do
+    {:noreply, assign(socket, is_recording: false, chat_error: "Microphone error: #{error}")}
+  end
+
+  def handle_event("audio_recorded", %{"audio" => base64_audio, "format" => format}, socket) do
+    socket = assign(socket, is_recording: false, is_transcribing: true)
+
+    if socket.assigns.groq_api_key do
+      # Decode base64 audio
+      audio_data = Base.decode64!(base64_audio)
+      format_atom = String.to_existing_atom(format)
+      groq_key = socket.assigns.groq_api_key
+      pid = self()
+
+      # Transcribe async
+      Task.start(fn ->
+        result = transcribe_audio(audio_data, format_atom, groq_key)
+        send(pid, {:transcription_result, result})
+      end)
+
+      {:noreply, socket}
+    else
+      {:noreply,
+       assign(socket,
+         is_transcribing: false,
+         chat_error: "Groq API key not configured for voice input"
+       )}
+    end
   end
 
   def handle_event("toggle_sidebar", _params, socket) do
@@ -219,10 +265,60 @@ defmodule TodosMcpWeb.TodoLive do
     {:noreply, socket}
   end
 
+  # Handle transcription result - then send to LLM
+  def handle_info({:transcription_result, result}, socket) do
+    socket = assign(socket, is_transcribing: false)
+
+    case result do
+      {:ok, %{text: text}} when text != "" ->
+        # We have transcribed text - now send it to the LLM as if user typed it
+        # Reuse the chat_send logic
+        if socket.assigns.runner do
+          user_msg = %{role: :user, content: text}
+          messages = socket.assigns.chat_messages ++ [user_msg]
+
+          socket =
+            assign(socket,
+              chat_messages: messages,
+              chat_input: "",
+              chat_loading: true,
+              chat_error: nil
+            )
+
+          runner = socket.assigns.runner
+          pid = self()
+
+          Task.start(fn ->
+            result = ConversationRunner.send_message(runner, text)
+            send(pid, {:llm_response, result})
+          end)
+
+          {:noreply, socket}
+        else
+          {:noreply, assign(socket, chat_error: "API key not configured")}
+        end
+
+      {:ok, %{text: ""}} ->
+        {:noreply, assign(socket, chat_error: "No speech detected")}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, chat_error: format_transcription_error(reason))}
+    end
+  end
+
   defp reload_todos(socket) do
     {:ok, todos} = Run.execute(%ListTodos{filter: socket.assigns.filter})
     {:ok, stats} = Run.execute(%GetStats{})
     assign(socket, todos: todos, stats: stats)
+  end
+
+  # Transcribe audio using Groq Whisper via the Transcribe effect
+  defp transcribe_audio(audio_data, format, api_key) do
+    alias Skuld.Comp
+
+    Transcribe.transcribe(audio_data, format: format)
+    |> Transcribe.with_handler(GroqHandler.handler(api_key: api_key))
+    |> Comp.run()
   end
 
   defp format_error({:api_error, status, body}) do
@@ -239,6 +335,18 @@ defmodule TodosMcpWeb.TodoLive do
 
   defp format_error(reason) do
     "Error: #{inspect(reason)}"
+  end
+
+  defp format_transcription_error({:api_error, status, body}) do
+    "Transcription error (#{status}): #{inspect(body["error"]["message"] || body)}"
+  end
+
+  defp format_transcription_error({:request_failed, reason}) do
+    "Transcription failed: #{inspect(reason)}"
+  end
+
+  defp format_transcription_error(reason) do
+    "Transcription error: #{inspect(reason)}"
   end
 
   @impl true
@@ -435,6 +543,12 @@ defmodule TodosMcpWeb.TodoLive do
             <span class="loading loading-dots loading-sm"></span>
             <span class="text-sm">Thinking...</span>
           </div>
+
+          <%!-- Transcribing indicator --%>
+          <div :if={@is_transcribing} class="flex items-center gap-2 text-gray-500">
+            <span class="loading loading-dots loading-sm"></span>
+            <span class="text-sm">Transcribing...</span>
+          </div>
         </div>
 
         <%!-- Error display --%>
@@ -453,13 +567,33 @@ defmodule TodosMcpWeb.TodoLive do
               phx-change="chat_input"
               phx-hook="MaintainFocus"
               placeholder={if @api_key, do: "Ask me to manage your todos...", else: "Configure API key first"}
-              disabled={!@api_key || @chat_loading}
+              disabled={!@api_key || @chat_loading || @is_transcribing}
               class="flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
               autocomplete="off"
             />
+            <%!-- Voice record button --%>
+            <button
+              type="button"
+              id="voice-record-btn"
+              phx-hook="AudioRecorder"
+              disabled={!@api_key || !@groq_api_key || @chat_loading || @is_transcribing}
+              title={cond do
+                !@groq_api_key -> "Configure Groq API key for voice"
+                @is_recording -> "Click to stop recording"
+                true -> "Click to start voice recording"
+              end}
+              class={[
+                "px-3 py-2 text-sm rounded-lg transition-colors",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+                @is_recording && "bg-red-500 text-white animate-pulse",
+                !@is_recording && "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              ]}
+            >
+              <.icon name={if @is_recording, do: "hero-stop", else: "hero-microphone"} class="w-5 h-5" />
+            </button>
             <button
               type="submit"
-              disabled={!@api_key || @chat_loading || @chat_input == ""}
+              disabled={!@api_key || @chat_loading || @is_transcribing || @chat_input == ""}
               class="px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Send
@@ -473,15 +607,18 @@ defmodule TodosMcpWeb.TodoLive do
         <:title>API Key Settings</:title>
 
         <p class="text-sm text-gray-600 mb-4">
-          Enter your Anthropic API key to enable the AI assistant.
-          Your key is stored in your browser session and never sent to our servers.
+          Configure your API keys to enable AI features.
+          Keys are stored in your browser session and never sent to our servers.
         </p>
 
         <form action={~p"/settings/api-key"} method="post" class="space-y-4">
           <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
 
           <div>
-            <label for="api_key" class="block text-sm font-medium mb-1">API Key</label>
+            <label for="api_key" class="block text-sm font-medium mb-1">
+              Anthropic API Key
+              <span class="text-gray-400 font-normal">(for chat)</span>
+            </label>
             <input
               type="password"
               name="api_key"
@@ -490,6 +627,30 @@ defmodule TodosMcpWeb.TodoLive do
               class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               autocomplete="off"
             />
+            <p :if={@api_key_source == :env} class="text-xs text-gray-500 mt-1">
+              Using key from ANTHROPIC_API_KEY env var
+            </p>
+          </div>
+
+          <div>
+            <label for="groq_api_key" class="block text-sm font-medium mb-1">
+              Groq API Key
+              <span class="text-gray-400 font-normal">(for voice, optional)</span>
+            </label>
+            <input
+              type="password"
+              name="groq_api_key"
+              id="groq_api_key"
+              placeholder="gsk_..."
+              class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              autocomplete="off"
+            />
+            <p :if={@groq_api_key && !@api_key_source} class="text-xs text-gray-500 mt-1">
+              Using key from GROQ_API_KEY env var
+            </p>
+            <p class="text-xs text-gray-400 mt-1">
+              <a href="https://console.groq.com/keys" target="_blank" class="text-blue-500 hover:underline">Create a free Groq API key</a>
+            </p>
           </div>
 
           <div class="flex gap-2">
@@ -510,15 +671,10 @@ defmodule TodosMcpWeb.TodoLive do
               type="submit"
               class="text-sm text-red-600 hover:underline"
             >
-              Clear saved API key
+              Clear saved API keys
             </button>
           </form>
         </div>
-
-        <p :if={@api_key_source == :env} class="mt-4 pt-4 border-t text-xs text-gray-500">
-          Currently using API key from ANTHROPIC_API_KEY environment variable.
-          Setting a key here will override it for this session.
-        </p>
       </.modal>
     </div>
     """
