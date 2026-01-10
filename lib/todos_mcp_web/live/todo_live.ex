@@ -128,7 +128,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("toggle", %{"id" => id}, socket) do
-    case Run.execute(%ToggleTodo{id: String.to_integer(id)}) do
+    case Run.execute(%ToggleTodo{id: id}) do
       {:ok, _todo} ->
         {:noreply, reload_todos(socket)}
 
@@ -138,7 +138,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
-    case Run.execute(%DeleteTodo{id: String.to_integer(id)}) do
+    case Run.execute(%DeleteTodo{id: id}) do
       {:ok, _todo} ->
         {:noreply, reload_todos(socket)}
 
