@@ -41,6 +41,14 @@ defmodule Mix.Tasks.TodosMcp.Mcp do
 
   @impl Mix.Task
   def run(_args) do
+    # Redirect logger to stderr so stdout is reserved for MCP JSON-RPC protocol.
+    # We must remove and re-add the handler since `type` can't be changed after start.
+    {:ok, handler_config} = :logger.get_handler_config(:default)
+    :logger.remove_handler(:default)
+
+    updated_config = put_in(handler_config, [:config, :type], :standard_error)
+    :logger.add_handler(:default, handler_config.module, updated_config)
+
     # Start the application
     {:ok, _} = Application.ensure_all_started(:todos_mcp)
 

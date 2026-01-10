@@ -52,7 +52,11 @@ defmodule TodosMcp.Mcp.Server do
     input = Keyword.get(opts, :input, :stdio)
     output = Keyword.get(opts, :output, :stdio)
 
+    Logger.debug("MCP Server init, pid=#{inspect(self())}")
+
     # Start reading from input in a separate process (unless using process-based I/O for testing)
+    server_pid = self()
+
     reader_pid =
       case input do
         {:process, _} ->
@@ -60,7 +64,10 @@ defmodule TodosMcp.Mcp.Server do
           nil
 
         _ ->
-          spawn_link(fn -> read_loop(self(), input) end)
+          spawn_link(fn ->
+            Logger.debug("MCP read_loop started, sending to #{inspect(server_pid)}")
+            read_loop(server_pid, input)
+          end)
       end
 
     state = %{
@@ -74,8 +81,10 @@ defmodule TodosMcp.Mcp.Server do
 
   @impl true
   def handle_info({:line, line}, state) do
+    Logger.debug("MCP received line: #{inspect(line)}")
     # Process the incoming JSON-RPC message
     response = Protocol.handle_request(line)
+    Logger.debug("MCP response: #{inspect(response)}")
 
     # Send response if not nil (notifications don't get responses)
     if response do
@@ -111,15 +120,23 @@ defmodule TodosMcp.Mcp.Server do
 
   # Read loop - runs in a separate process
   defp read_loop(server, input) do
+    Logger.debug("MCP read_loop waiting for input...")
+
     case read_line(input) do
       {:ok, line} ->
+        Logger.debug(
+          "MCP read_loop got line: #{inspect(line)}, sending to #{inspect(server)}, alive=#{Process.alive?(server)}"
+        )
+
         send(server, {:line, line})
         read_loop(server, input)
 
       {:error, reason} ->
+        Logger.debug("MCP read_loop error: #{inspect(reason)}")
         send(server, {:error, reason})
 
       :eof ->
+        Logger.debug("MCP read_loop got EOF, server alive=#{Process.alive?(server)}")
         send(server, :eof)
     end
   end
