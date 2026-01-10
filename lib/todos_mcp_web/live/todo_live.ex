@@ -616,7 +616,7 @@ defmodule TodosMcpWeb.TodoLive do
                 if @api_key, do: "Ask me to manage your todos...", else: "Configure API key first"
               }
               disabled={!@api_key || @chat_loading || @is_transcribing}
-              class="flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              class="flex-1 min-w-0 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
               autocomplete="off"
             />
             <%!-- Voice record button --%>
@@ -633,7 +633,7 @@ defmodule TodosMcpWeb.TodoLive do
                 end
               }
               class={[
-                "px-3 py-2 text-sm rounded-lg transition-colors",
+                "flex-shrink-0 px-3 py-2 text-sm rounded-lg transition-colors",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
                 @is_recording && "bg-red-500 text-white animate-pulse",
                 !@is_recording && "bg-gray-200 text-gray-700 hover:bg-gray-300"
@@ -647,9 +647,10 @@ defmodule TodosMcpWeb.TodoLive do
             <button
               type="submit"
               disabled={!@api_key || @chat_loading || @is_transcribing || @chat_input == ""}
-              class="px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Send message"
+              class="flex-shrink-0 px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Send
+              <.icon name="hero-paper-airplane" class="w-5 h-5" />
             </button>
           </div>
         </form>
