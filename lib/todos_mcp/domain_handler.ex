@@ -45,113 +45,93 @@ defmodule TodosMcp.DomainHandler do
   ## Commands (mutations)
   #############################################################################
 
-  def handle(%CreateTodo{} = cmd) do
-    comp do
-      id <- Fresh.fresh_uuid()
+  defcomp handle(%CreateTodo{} = cmd) do
+    id <- Fresh.fresh_uuid()
 
-      attrs = %{
-        id: id,
+    attrs = %{
+      id: id,
+      title: cmd.title,
+      description: cmd.description,
+      priority: cmd.priority,
+      due_date: cmd.due_date,
+      tags: cmd.tags
+    }
+
+    changeset = Todo.changeset(%Todo{}, attrs)
+    todo <- EctoPersist.insert(changeset)
+    {:ok, todo}
+  end
+
+  defcomp handle(%UpdateTodo{id: id} = cmd) do
+    todo <- DataAccess.get_todo!(id)
+
+    attrs =
+      %{
         title: cmd.title,
         description: cmd.description,
         priority: cmd.priority,
         due_date: cmd.due_date,
         tags: cmd.tags
       }
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+      |> Map.new()
 
-      changeset = Todo.changeset(%Todo{}, attrs)
-      todo <- EctoPersist.insert(changeset)
-      {:ok, todo}
-    end
+    changeset = Todo.changeset(todo, attrs)
+    updated <- EctoPersist.update(changeset)
+    {:ok, updated}
   end
 
-  def handle(%UpdateTodo{id: id} = cmd) do
-    comp do
-      todo <- DataAccess.get_todo!(id)
-
-      attrs =
-        %{
-          title: cmd.title,
-          description: cmd.description,
-          priority: cmd.priority,
-          due_date: cmd.due_date,
-          tags: cmd.tags
-        }
-        |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-        |> Map.new()
-
-      changeset = Todo.changeset(todo, attrs)
-      updated <- EctoPersist.update(changeset)
-      {:ok, updated}
-    end
+  defcomp handle(%ToggleTodo{id: id}) do
+    todo <- DataAccess.get_todo!(id)
+    changeset = Todo.changeset(todo, %{completed: not todo.completed})
+    updated <- EctoPersist.update(changeset)
+    {:ok, updated}
   end
 
-  def handle(%ToggleTodo{id: id}) do
-    comp do
-      todo <- DataAccess.get_todo!(id)
-      changeset = Todo.changeset(todo, %{completed: not todo.completed})
-      updated <- EctoPersist.update(changeset)
-      {:ok, updated}
-    end
+  defcomp handle(%DeleteTodo{id: id}) do
+    todo <- DataAccess.get_todo!(id)
+    result <- EctoPersist.delete(todo)
+    result
   end
 
-  def handle(%DeleteTodo{id: id}) do
-    comp do
-      todo <- DataAccess.get_todo!(id)
-      result <- EctoPersist.delete(todo)
-      result
-    end
+  defcomp handle(%CompleteAll{}) do
+    todos <- DataAccess.list_incomplete()
+    changesets = Enum.map(todos, &Todo.changeset(&1, %{completed: true}))
+    {count, _} <- EctoPersist.update_all(Todo, changesets)
+    {:ok, %{updated: count}}
   end
 
-  def handle(%CompleteAll{}) do
-    comp do
-      todos <- DataAccess.list_incomplete()
-      changesets = Enum.map(todos, &Todo.changeset(&1, %{completed: true}))
-      {count, _} <- EctoPersist.update_all(Todo, changesets)
-      {:ok, %{updated: count}}
-    end
-  end
-
-  def handle(%ClearCompleted{}) do
-    comp do
-      todos <- DataAccess.list_completed()
-      {count, _} <- EctoPersist.delete_all(Todo, todos)
-      {:ok, %{deleted: count}}
-    end
+  defcomp handle(%ClearCompleted{}) do
+    todos <- DataAccess.list_completed()
+    {count, _} <- EctoPersist.delete_all(Todo, todos)
+    {:ok, %{deleted: count}}
   end
 
   #############################################################################
   ## Queries (reads)
   #############################################################################
 
-  def handle(%ListTodos{filter: filter, sort_by: sort_by, sort_order: sort_order}) do
-    comp do
-      todos <- DataAccess.list_todos(%{filter: filter, sort_by: sort_by, sort_order: sort_order})
-      {:ok, todos}
+  defcomp handle(%ListTodos{filter: filter, sort_by: sort_by, sort_order: sort_order}) do
+    todos <- DataAccess.list_todos(%{filter: filter, sort_by: sort_by, sort_order: sort_order})
+    {:ok, todos}
+  end
+
+  defcomp handle(%GetTodo{id: id}) do
+    result <- DataAccess.get_todo(id)
+
+    case result do
+      {:ok, todo} -> {:ok, todo}
+      {:error, {:not_found, _, _}} -> {:error, :not_found}
     end
   end
 
-  def handle(%GetTodo{id: id}) do
-    comp do
-      result <- DataAccess.get_todo(id)
-
-      case result do
-        {:ok, todo} -> {:ok, todo}
-        {:error, {:not_found, _, _}} -> {:error, :not_found}
-      end
-    end
+  defcomp handle(%SearchTodos{query: query, limit: limit}) do
+    todos <- DataAccess.search_todos(query, limit)
+    {:ok, todos}
   end
 
-  def handle(%SearchTodos{query: query, limit: limit}) do
-    comp do
-      todos <- DataAccess.search_todos(query, limit)
-      {:ok, todos}
-    end
-  end
-
-  def handle(%GetStats{}) do
-    comp do
-      stats <- DataAccess.get_stats()
-      {:ok, stats}
-    end
+  defcomp handle(%GetStats{}) do
+    stats <- DataAccess.get_stats()
+    {:ok, stats}
   end
 end
