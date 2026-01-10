@@ -8,7 +8,7 @@ defmodule TodosMcpWeb.TodoLive do
   use TodosMcpWeb, :live_view
 
   alias TodosMcp.Run
-  alias TodosMcp.Llm.Conversation
+  alias TodosMcp.Llm.ConversationRunner
   alias TodosMcp.Commands.{CreateTodo, ToggleTodo, DeleteTodo, ClearCompleted, CompleteAll}
   alias TodosMcp.Queries.{ListTodos, GetStats}
 
@@ -29,6 +29,17 @@ defmodule TodosMcpWeb.TodoLive do
         true -> nil
       end
 
+    # Initialize conversation runner (suspended at :await_user_input)
+    runner =
+      if api_key do
+        case ConversationRunner.start(api_key: api_key) do
+          {:ok, runner} -> runner
+          {:error, _reason} -> nil
+        end
+      else
+        nil
+      end
+
     {:ok,
      assign(socket,
        todos: todos,
@@ -42,7 +53,7 @@ defmodule TodosMcpWeb.TodoLive do
        chat_input: "",
        chat_loading: false,
        chat_error: nil,
-       conversation: if(api_key, do: Conversation.new(api_key: api_key), else: nil)
+       runner: runner
      )}
   end
 
@@ -50,7 +61,7 @@ defmodule TodosMcpWeb.TodoLive do
 
   @impl true
   def handle_event("chat_send", %{"message" => message}, socket) when message != "" do
-    if socket.assigns.conversation do
+    if socket.assigns.runner do
       # Add user message to UI immediately
       user_msg = %{role: :user, content: message}
       messages = socket.assigns.chat_messages ++ [user_msg]
@@ -60,12 +71,12 @@ defmodule TodosMcpWeb.TodoLive do
         socket
         |> assign(chat_messages: messages, chat_input: "", chat_loading: true, chat_error: nil)
 
-      # Send async to avoid blocking
-      conv = socket.assigns.conversation
+      # Send async to avoid blocking (LLM calls can take seconds)
+      runner = socket.assigns.runner
       pid = self()
 
       Task.start(fn ->
-        result = Conversation.send_message(conv, message)
+        result = ConversationRunner.send_message(runner, message)
         send(pid, {:llm_response, result})
       end)
 
@@ -84,15 +95,18 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("chat_clear", _params, socket) do
-    socket =
-      if socket.assigns.conversation do
-        conv = Conversation.clear_history(socket.assigns.conversation)
-        assign(socket, conversation: conv, chat_messages: [], chat_error: nil)
+    # Start a fresh conversation runner
+    runner =
+      if socket.assigns.api_key do
+        case ConversationRunner.start(api_key: socket.assigns.api_key) do
+          {:ok, runner} -> runner
+          {:error, _reason} -> nil
+        end
       else
-        assign(socket, chat_messages: [], chat_error: nil)
+        nil
       end
 
-    {:noreply, socket}
+    {:noreply, assign(socket, runner: runner, chat_messages: [], chat_error: nil)}
   end
 
   def handle_event("toggle_sidebar", _params, socket) do
@@ -164,12 +178,12 @@ defmodule TodosMcpWeb.TodoLive do
     {:noreply, assign(socket, new_todo_title: title)}
   end
 
-  # Handle LLM response
+  # Handle LLM response from ConversationRunner
   @impl true
   def handle_info({:llm_response, result}, socket) do
     socket =
       case result do
-        {:ok, conv, response} ->
+        {:ok, response, updated_runner} ->
           # Add assistant message with tool executions
           assistant_msg = %{
             role: :assistant,
@@ -188,13 +202,15 @@ defmodule TodosMcpWeb.TodoLive do
             end
 
           assign(socket,
-            conversation: conv,
+            runner: updated_runner,
             chat_messages: messages,
             chat_loading: false
           )
 
-        {:error, reason} ->
+        {:error, reason, updated_runner} ->
+          # Even on error, update the runner (it's back at :await_user_input)
           assign(socket,
+            runner: updated_runner,
             chat_loading: false,
             chat_error: format_error(reason)
           )
