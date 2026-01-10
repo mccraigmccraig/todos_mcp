@@ -335,7 +335,7 @@ defmodule TodosMcpWeb.TodoLive do
     try do
       Transcribe.transcribe(audio_data, format: format)
       |> Transcribe.with_handler(GroqHandler.handler(api_key: api_key))
-      |> Comp.run()
+      |> Comp.run!()
     rescue
       e -> {:error, {:exception, Exception.message(e)}}
     catch

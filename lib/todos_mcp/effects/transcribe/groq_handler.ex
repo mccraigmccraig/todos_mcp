@@ -103,10 +103,21 @@ defmodule TodosMcp.Effects.Transcribe.GroqHandler do
       |> maybe_add_part(:language, Keyword.get(opts, :language))
       |> maybe_add_part(:prompt, Keyword.get(opts, :prompt))
 
-    case Req.post(@api_url,
-           form_multipart: form_parts,
-           headers: [{"authorization", "Bearer #{api_key}"}]
-         ) do
+    require Logger
+
+    Logger.info(
+      "Groq transcribe: sending #{byte_size(audio_data)} bytes, format=#{format}, model=#{model}"
+    )
+
+    result =
+      Req.post(@api_url,
+        form_multipart: form_parts,
+        headers: [{"authorization", "Bearer #{api_key}"}]
+      )
+
+    Logger.info("Groq transcribe response: #{inspect(result, limit: 500)}")
+
+    case result do
       {:ok, %{status: 200, body: body}} ->
         {:ok, normalize_response(body)}
 
