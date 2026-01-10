@@ -466,9 +466,14 @@ defmodule TodosMcpWeb.TodoLive do
                 phx-value-id={todo.id}
                 class="w-5 h-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
               />
-              <span class={["flex-1", todo.completed && "line-through text-gray-400"]}>
-                {todo.title}
-              </span>
+              <div class="flex-1">
+                <span class={[todo.completed && "line-through text-gray-400"]}>
+                  {todo.title}
+                </span>
+                <p :if={todo.description not in [nil, ""]} class={["text-sm mt-0.5", todo.completed && "line-through text-gray-300" || "text-gray-500"]}>
+                  {todo.description}
+                </p>
+              </div>
               <span
                 :if={todo.priority != :medium}
                 class={[
