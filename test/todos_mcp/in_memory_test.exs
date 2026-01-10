@@ -1,6 +1,11 @@
 defmodule TodosMcp.InMemoryTest do
   use ExUnit.Case, async: false
 
+  # Only run these tests in in_memory mode
+  if Application.compile_env(:todos_mcp, :storage_mode, :in_memory) != :in_memory do
+    @moduletag :skip
+  end
+
   alias TodosMcp.{InMemoryStore, Run}
   alias TodosMcp.Commands.{CreateTodo, ToggleTodo, DeleteTodo, CompleteAll, ClearCompleted}
   alias TodosMcp.Queries.{ListTodos, GetTodo, GetStats}

@@ -1,5 +1,15 @@
 import Config
 
+# Storage mode - can be overridden via STORAGE_MODE env var
+# e.g., STORAGE_MODE=database mix test
+storage_mode =
+  case System.get_env("STORAGE_MODE", "in_memory") do
+    "database" -> :database
+    _ -> :in_memory
+  end
+
+config :todos_mcp, :storage_mode, storage_mode
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
