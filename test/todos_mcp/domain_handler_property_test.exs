@@ -43,6 +43,34 @@ defmodule TodosMcp.DomainHandlerPropertyTest do
     Run.execute(cmd, mode: :in_memory, tenant_id: @test_tenant)
   end
 
+  # Comparison helpers for sorting (handles DateTime properly)
+  defp compare_asc(nil, nil), do: true
+  defp compare_asc(nil, _), do: true
+  defp compare_asc(_, nil), do: false
+  defp compare_asc(%DateTime{} = a, %DateTime{} = b), do: DateTime.compare(a, b) != :gt
+  defp compare_asc(a, b), do: a <= b
+
+  defp compare_desc(nil, nil), do: true
+  defp compare_desc(nil, _), do: false
+  defp compare_desc(_, nil), do: true
+  defp compare_desc(%DateTime{} = a, %DateTime{} = b), do: DateTime.compare(a, b) != :lt
+  defp compare_desc(a, b), do: a >= b
+
+  # Check if a list is sorted by a given field in the given order
+  defp is_sorted?(list, _field, _order) when length(list) < 2, do: true
+
+  defp is_sorted?(list, field, order) do
+    comparator = if order == :asc, do: &compare_asc/2, else: &compare_desc/2
+
+    list
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.all?(fn [a, b] ->
+      val_a = Map.get(a, field)
+      val_b = Map.get(b, field)
+      comparator.(val_a, val_b)
+    end)
+  end
+
   #############################################################################
   ## Command Properties
   #############################################################################
@@ -265,14 +293,10 @@ defmodule TodosMcp.DomainHandlerPropertyTest do
         query = %ListTodos{filter: :all, sort_by: sort_by, sort_order: sort_order}
         {:ok, results} = run_with_todos(query, todos)
 
-        # Verify sorting
-        sorted =
-          case sort_order do
-            :asc -> Enum.sort_by(results, &Map.get(&1, sort_by))
-            :desc -> Enum.sort_by(results, &Map.get(&1, sort_by), :desc)
-          end
-
-        assert results == sorted
+        # Verify sorting property: each adjacent pair respects the sort order
+        # (We check the property directly rather than re-sorting, because Enum.sort_by
+        # is not stable and may reorder equal elements differently)
+        assert is_sorted?(results, sort_by, sort_order)
       end
     end
   end
