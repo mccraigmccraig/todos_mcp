@@ -90,11 +90,11 @@ defmodule TodosMcp.Effects.Transcribe.GroqHandler do
 
     {content_type, filename} = Map.get(@format_info, format, {"audio/webm", "audio.webm"})
 
-    # Build multipart form
+    # Build multipart form using Req's form_multipart format
     form_parts = [
-      {:file, audio_data, {"form-data", [name: "file", filename: filename]},
-       [{"content-type", content_type}]},
-      {:model, model}
+      file: {audio_data, filename: filename, content_type: content_type},
+      model: model,
+      response_format: "verbose_json"
     ]
 
     # Add optional parameters
@@ -102,15 +102,11 @@ defmodule TodosMcp.Effects.Transcribe.GroqHandler do
       form_parts
       |> maybe_add_part(:language, Keyword.get(opts, :language))
       |> maybe_add_part(:prompt, Keyword.get(opts, :prompt))
-      |> maybe_add_part(:response_format, "verbose_json")
 
-    multipart = {:multipart, form_parts}
-
-    headers = [
-      {"authorization", "Bearer #{api_key}"}
-    ]
-
-    case Req.post(@api_url, body: multipart, headers: headers) do
+    case Req.post(@api_url,
+           form_multipart: form_parts,
+           headers: [{"authorization", "Bearer #{api_key}"}]
+         ) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, normalize_response(body)}
 

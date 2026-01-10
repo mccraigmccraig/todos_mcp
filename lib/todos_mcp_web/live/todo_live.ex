@@ -14,6 +14,9 @@ defmodule TodosMcpWeb.TodoLive do
   alias TodosMcp.Effects.Transcribe
   alias TodosMcp.Effects.Transcribe.GroqHandler
 
+  # Allowed audio formats for voice recording (ensures atoms exist for to_existing_atom)
+  @allowed_audio_formats [:webm, :mp3, :wav, :ogg]
+
   @impl true
   def mount(_params, session, socket) do
     {:ok, todos} = Run.execute(%ListTodos{})
@@ -133,19 +136,28 @@ defmodule TodosMcpWeb.TodoLive do
     socket = assign(socket, is_recording: false, is_transcribing: true)
 
     if socket.assigns.groq_api_key do
-      # Decode base64 audio
+      # Decode base64 audio and validate format
       audio_data = Base.decode64!(base64_audio)
       format_atom = String.to_existing_atom(format)
-      groq_key = socket.assigns.groq_api_key
-      pid = self()
 
-      # Transcribe async
-      Task.start(fn ->
-        result = transcribe_audio(audio_data, format_atom, groq_key)
-        send(pid, {:transcription_result, result})
-      end)
+      if format_atom in @allowed_audio_formats do
+        groq_key = socket.assigns.groq_api_key
+        pid = self()
 
-      {:noreply, socket}
+        # Transcribe async
+        Task.start(fn ->
+          result = transcribe_audio(audio_data, format_atom, groq_key)
+          send(pid, {:transcription_result, result})
+        end)
+
+        {:noreply, socket}
+      else
+        {:noreply,
+         assign(socket,
+           is_transcribing: false,
+           chat_error: "Unsupported audio format: #{format}"
+         )}
+      end
     else
       {:noreply,
        assign(socket,
@@ -303,6 +315,10 @@ defmodule TodosMcpWeb.TodoLive do
 
       {:error, reason} ->
         {:noreply, assign(socket, chat_error: format_transcription_error(reason))}
+
+      # Handle unexpected computation errors (e.g., Skuld.Comp.Throw)
+      _other ->
+        {:noreply, assign(socket, chat_error: "Transcription failed: unexpected error")}
     end
   end
 
@@ -316,9 +332,15 @@ defmodule TodosMcpWeb.TodoLive do
   defp transcribe_audio(audio_data, format, api_key) do
     alias Skuld.Comp
 
-    Transcribe.transcribe(audio_data, format: format)
-    |> Transcribe.with_handler(GroqHandler.handler(api_key: api_key))
-    |> Comp.run()
+    try do
+      Transcribe.transcribe(audio_data, format: format)
+      |> Transcribe.with_handler(GroqHandler.handler(api_key: api_key))
+      |> Comp.run()
+    rescue
+      e -> {:error, {:exception, Exception.message(e)}}
+    catch
+      kind, reason -> {:error, {kind, reason}}
+    end
   end
 
   defp format_error({:api_error, status, body}) do
