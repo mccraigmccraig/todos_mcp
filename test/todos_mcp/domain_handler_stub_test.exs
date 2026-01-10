@@ -15,8 +15,16 @@ defmodule TodosMcp.DomainHandlerStubTest do
   @uuid2 "550e8400-e29b-41d4-a716-446655440002"
   @uuid_not_found "550e8400-e29b-41d4-a716-446655449999"
 
-  alias TodosMcp.Commands.{CreateTodo, UpdateTodo, ToggleTodo, DeleteTodo}
-  alias TodosMcp.Queries.{GetTodo, ListTodos}
+  alias TodosMcp.Commands.{
+    CreateTodo,
+    UpdateTodo,
+    ToggleTodo,
+    DeleteTodo,
+    CompleteAll,
+    ClearCompleted
+  }
+
+  alias TodosMcp.Queries.{GetTodo, ListTodos, SearchTodos, GetStats}
 
   describe "CreateTodo command" do
     test "inserts a new todo with generated UUID" do
@@ -218,6 +226,189 @@ defmodule TodosMcp.DomainHandlerStubTest do
 
       assert length(result) == 2
       assert Enum.map(result, & &1.title) == ["First", "Second"]
+    end
+  end
+
+  describe "CompleteAll command" do
+    test "marks all incomplete todos as completed" do
+      incomplete_todos = [
+        %Todo{id: @uuid1, title: "First", completed: false, priority: :medium, tags: []},
+        %Todo{id: @uuid2, title: "Second", completed: false, priority: :high, tags: []}
+      ]
+
+      cmd = %CompleteAll{}
+
+      query_stubs = %{
+        Query.key(DataAccess.Impl, :list_incomplete, %{}) => incomplete_todos
+      }
+
+      {{:ok, result}, calls} =
+        Command.execute(cmd)
+        |> Command.with_handler(&DomainHandler.handle/1)
+        |> Query.with_test_handler(query_stubs)
+        |> EctoPersist.with_test_handler(fn
+          %EctoPersist.UpdateAll{entries: entries} -> {length(entries), nil}
+        end)
+        |> Throw.with_handler()
+        |> Comp.run!()
+
+      assert result == %{updated: 2}
+      assert [{:update_all, {Todo, changesets, []}}] = calls
+      assert length(changesets) == 2
+      # All changesets should set completed: true
+      assert Enum.all?(changesets, fn cs -> cs.changes.completed == true end)
+    end
+
+    test "returns zero when no incomplete todos" do
+      cmd = %CompleteAll{}
+
+      query_stubs = %{
+        Query.key(DataAccess.Impl, :list_incomplete, %{}) => []
+      }
+
+      {{:ok, result}, calls} =
+        Command.execute(cmd)
+        |> Command.with_handler(&DomainHandler.handle/1)
+        |> Query.with_test_handler(query_stubs)
+        |> EctoPersist.with_test_handler(fn
+          %EctoPersist.UpdateAll{entries: entries} -> {length(entries), nil}
+        end)
+        |> Throw.with_handler()
+        |> Comp.run!()
+
+      assert result == %{updated: 0}
+      assert [{:update_all, {Todo, [], []}}] = calls
+    end
+  end
+
+  describe "ClearCompleted command" do
+    test "deletes all completed todos" do
+      completed_todos = [
+        %Todo{id: @uuid1, title: "Done 1", completed: true, priority: :medium, tags: []},
+        %Todo{id: @uuid2, title: "Done 2", completed: true, priority: :low, tags: []}
+      ]
+
+      cmd = %ClearCompleted{}
+
+      query_stubs = %{
+        Query.key(DataAccess.Impl, :list_completed, %{}) => completed_todos
+      }
+
+      {{:ok, result}, calls} =
+        Command.execute(cmd)
+        |> Command.with_handler(&DomainHandler.handle/1)
+        |> Query.with_test_handler(query_stubs)
+        |> EctoPersist.with_test_handler(fn
+          %EctoPersist.DeleteAll{entries: entries} -> {length(entries), nil}
+        end)
+        |> Throw.with_handler()
+        |> Comp.run!()
+
+      assert result == %{deleted: 2}
+      assert [{:delete_all, {Todo, ^completed_todos, []}}] = calls
+    end
+
+    test "returns zero when no completed todos" do
+      cmd = %ClearCompleted{}
+
+      query_stubs = %{
+        Query.key(DataAccess.Impl, :list_completed, %{}) => []
+      }
+
+      {{:ok, result}, calls} =
+        Command.execute(cmd)
+        |> Command.with_handler(&DomainHandler.handle/1)
+        |> Query.with_test_handler(query_stubs)
+        |> EctoPersist.with_test_handler(fn
+          %EctoPersist.DeleteAll{entries: entries} -> {length(entries), nil}
+        end)
+        |> Throw.with_handler()
+        |> Comp.run!()
+
+      assert result == %{deleted: 0}
+      assert [{:delete_all, {Todo, [], []}}] = calls
+    end
+  end
+
+  describe "SearchTodos query" do
+    test "searches todos by query string" do
+      matching_todos = [
+        %Todo{id: @uuid1, title: "Buy milk", completed: false, priority: :medium, tags: []},
+        %Todo{id: @uuid2, title: "Buy eggs", completed: false, priority: :low, tags: []}
+      ]
+
+      query = %SearchTodos{query: "Buy", limit: 10}
+
+      query_stubs = %{
+        Query.key(DataAccess.Impl, :search_todos, %{query: "Buy", limit: 10}) => matching_todos
+      }
+
+      {:ok, result} =
+        Command.execute(query)
+        |> Command.with_handler(&DomainHandler.handle/1)
+        |> Query.with_test_handler(query_stubs)
+        |> Throw.with_handler()
+        |> Comp.run!()
+
+      assert length(result) == 2
+      assert Enum.all?(result, fn t -> String.contains?(t.title, "Buy") end)
+    end
+
+    test "returns empty list when no matches" do
+      query = %SearchTodos{query: "nonexistent"}
+
+      query_stubs = %{
+        Query.key(DataAccess.Impl, :search_todos, %{query: "nonexistent", limit: 20}) => []
+      }
+
+      {:ok, result} =
+        Command.execute(query)
+        |> Command.with_handler(&DomainHandler.handle/1)
+        |> Query.with_test_handler(query_stubs)
+        |> Throw.with_handler()
+        |> Comp.run!()
+
+      assert result == []
+    end
+  end
+
+  describe "GetStats query" do
+    test "returns todo statistics" do
+      stats = %{total: 10, active: 6, completed: 4}
+
+      query = %GetStats{}
+
+      query_stubs = %{
+        Query.key(DataAccess.Impl, :get_stats, %{}) => stats
+      }
+
+      {:ok, result} =
+        Command.execute(query)
+        |> Command.with_handler(&DomainHandler.handle/1)
+        |> Query.with_test_handler(query_stubs)
+        |> Throw.with_handler()
+        |> Comp.run!()
+
+      assert result == %{total: 10, active: 6, completed: 4}
+    end
+
+    test "returns zeros when no todos" do
+      stats = %{total: 0, active: 0, completed: 0}
+
+      query = %GetStats{}
+
+      query_stubs = %{
+        Query.key(DataAccess.Impl, :get_stats, %{}) => stats
+      }
+
+      {:ok, result} =
+        Command.execute(query)
+        |> Command.with_handler(&DomainHandler.handle/1)
+        |> Query.with_test_handler(query_stubs)
+        |> Throw.with_handler()
+        |> Comp.run!()
+
+      assert result == %{total: 0, active: 0, completed: 0}
     end
   end
 end
