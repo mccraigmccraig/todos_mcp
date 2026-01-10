@@ -476,7 +476,7 @@ defmodule TodosMcpWeb.TodoLive do
                 class="w-5 h-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
               />
               <div class="flex-1">
-                <span class={[todo.completed && "line-through text-gray-400"]}>
+                <span class={["text-gray-800", todo.completed && "line-through text-gray-400"]}>
                   {todo.title}
                 </span>
                 <p :if={todo.description not in [nil, ""]} class={["text-sm mt-0.5", todo.completed && "line-through text-gray-300" || "text-gray-500"]}>
@@ -569,13 +569,13 @@ defmodule TodosMcpWeb.TodoLive do
             <div class="text-xs text-gray-500 mb-1">
               {if msg.role == :user, do: "You", else: "Assistant"}
             </div>
-            <div class="whitespace-pre-wrap text-sm">{msg.content}</div>
+            <div class="whitespace-pre-wrap text-sm text-gray-900">{msg.content}</div>
 
             <%!-- Tool executions --%>
             <div :if={msg[:tool_executions] && msg.tool_executions != []} class="mt-2 space-y-1">
               <div
                 :for={exec <- msg.tool_executions}
-                class="text-xs bg-base-300 rounded px-2 py-1"
+                class="text-xs text-gray-900 bg-gray-200 rounded px-2 py-1"
               >
                 <span class="font-medium">{exec.tool}</span>
                 <span :if={match?({:ok, _}, exec.result)} class="text-green-600 ml-1">ok</span>
@@ -739,6 +739,6 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   defp message_class(:user), do: "bg-blue-50 rounded-lg p-3 ml-4"
-  defp message_class(:assistant), do: "bg-base-100 rounded-lg p-3 mr-4"
-  defp message_class(_), do: "bg-base-100 rounded-lg p-3"
+  defp message_class(:assistant), do: "bg-gray-100 rounded-lg p-3 mr-4"
+  defp message_class(_), do: "bg-gray-100 rounded-lg p-3"
 end
