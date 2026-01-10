@@ -385,7 +385,14 @@ defmodule TodosMcpWeb.TodoLive do
               class="text-gray-500 hover:text-gray-700"
               title={if @sidebar_open, do: "Hide chat", else: "Show chat"}
             >
-              <.icon name={if @sidebar_open, do: "hero-chat-bubble-left-right-solid", else: "hero-chat-bubble-left-right"} class="w-6 h-6" />
+              <.icon
+                name={
+                  if @sidebar_open,
+                    do: "hero-chat-bubble-left-right-solid",
+                    else: "hero-chat-bubble-left-right"
+                }
+                class="w-6 h-6"
+              />
             </button>
           </div>
 
@@ -525,7 +532,10 @@ defmodule TodosMcpWeb.TodoLive do
           </button>
         </div>
 
-        <div :if={@api_key} class="px-3 py-2 text-xs text-gray-500 border-b border-base-300 flex items-center justify-between">
+        <div
+          :if={@api_key}
+          class="px-3 py-2 text-xs text-gray-500 border-b border-base-300 flex items-center justify-between"
+        >
           <span>
             API Key: {if @api_key_source == :session, do: "configured", else: "from env"}
           </span>
@@ -588,7 +598,9 @@ defmodule TodosMcpWeb.TodoLive do
               value={@chat_input}
               phx-change="chat_input"
               phx-hook="MaintainFocus"
-              placeholder={if @api_key, do: "Ask me to manage your todos...", else: "Configure API key first"}
+              placeholder={
+                if @api_key, do: "Ask me to manage your todos...", else: "Configure API key first"
+              }
               disabled={!@api_key || @chat_loading || @is_transcribing}
               class="flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
               autocomplete="off"
@@ -599,11 +611,13 @@ defmodule TodosMcpWeb.TodoLive do
               id="voice-record-btn"
               phx-hook="AudioRecorder"
               disabled={!@api_key || !@groq_api_key || @chat_loading || @is_transcribing}
-              title={cond do
-                !@groq_api_key -> "Configure Groq API key for voice"
-                @is_recording -> "Click to stop recording"
-                true -> "Click to start voice recording"
-              end}
+              title={
+                cond do
+                  !@groq_api_key -> "Configure Groq API key for voice"
+                  @is_recording -> "Click to stop recording"
+                  true -> "Click to start voice recording"
+                end
+              }
               class={[
                 "px-3 py-2 text-sm rounded-lg transition-colors",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -611,7 +625,10 @@ defmodule TodosMcpWeb.TodoLive do
                 !@is_recording && "bg-gray-200 text-gray-700 hover:bg-gray-300"
               ]}
             >
-              <.icon name={if @is_recording, do: "hero-stop", else: "hero-microphone"} class="w-5 h-5" />
+              <.icon
+                name={if @is_recording, do: "hero-stop", else: "hero-microphone"}
+                class="w-5 h-5"
+              />
             </button>
             <button
               type="submit"
@@ -638,8 +655,7 @@ defmodule TodosMcpWeb.TodoLive do
 
           <div>
             <label for="api_key" class="block text-sm font-medium mb-1">
-              Anthropic API Key
-              <span class="text-gray-400 font-normal">(for chat)</span>
+              Anthropic API Key <span class="text-gray-400 font-normal">(for chat)</span>
             </label>
             <input
               type="password"
@@ -656,8 +672,7 @@ defmodule TodosMcpWeb.TodoLive do
 
           <div>
             <label for="groq_api_key" class="block text-sm font-medium mb-1">
-              Groq API Key
-              <span class="text-gray-400 font-normal">(for voice, optional)</span>
+              Groq API Key <span class="text-gray-400 font-normal">(for voice, optional)</span>
             </label>
             <input
               type="password"
@@ -671,7 +686,13 @@ defmodule TodosMcpWeb.TodoLive do
               Using key from GROQ_API_KEY env var
             </p>
             <p class="text-xs text-gray-400 mt-1">
-              <a href="https://console.groq.com/keys" target="_blank" class="text-blue-500 hover:underline">Create a free Groq API key</a>
+              <a
+                href="https://console.groq.com/keys"
+                target="_blank"
+                class="text-blue-500 hover:underline"
+              >
+                Create a free Groq API key
+              </a>
             </p>
           </div>
 
