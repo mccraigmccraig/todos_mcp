@@ -5,6 +5,12 @@ defmodule TodosMcp.DataAccess do
   Public functions return `Skuld.Effects.Query` computations, keeping the
   Query effect abstraction while providing a clean API.
 
+  ## Storage Modes
+
+  The implementation module is selected based on the configured storage mode:
+  - `:database` → `DataAccess.Impl` (Ecto/Postgres)
+  - `:in_memory` → `DataAccess.InMemoryImpl` (Agent-based)
+
   ## API Variants
 
   - Plain functions (`get_todo/1`) return result tuples `{:ok, value}` or
@@ -30,6 +36,9 @@ defmodule TodosMcp.DataAccess do
   """
 
   alias Skuld.Effects.Query
+
+  # All requests go to Impl - the Query handler maps to the actual implementation
+  # based on storage mode (database -> Impl direct, in_memory -> InMemoryImpl)
 
   # Get a single todo by ID (returns {:ok, todo} or {:error, :not_found})
   def get_todo(id), do: Query.request(__MODULE__.Impl, :get_todo, %{id: id})

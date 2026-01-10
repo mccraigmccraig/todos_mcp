@@ -1,8 +1,14 @@
 defmodule TodosMcp.DataAccess.ImplTest do
   @moduledoc """
   Tests for DataAccess.Impl with real database (Ecto sandbox).
+  Only runs when storage_mode is :database.
   """
   use TodosMcp.DataCase, async: true
+
+  # Skip these tests when not in database mode
+  if Application.compile_env(:todos_mcp, :storage_mode, :in_memory) != :database do
+    @moduletag :skip
+  end
 
   alias TodosMcp.{Repo, Todo, DataAccess}
 

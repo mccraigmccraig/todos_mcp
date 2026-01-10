@@ -1,14 +1,37 @@
 defmodule TodosMcp.Mcp.ProtocolTest do
-  use TodosMcp.DataCase, async: true
+  # async: false because in-memory mode uses shared state
+  use TodosMcp.DataCase, async: false
 
   alias TodosMcp.Mcp.Protocol
-  alias TodosMcp.{Repo, Todo}
+  alias TodosMcp.{InMemoryStore, Run}
+  alias TodosMcp.Commands.{CreateTodo, ToggleTodo}
+  alias TodosMcp.Queries.{GetTodo, ListTodos}
 
-  # Helper to create a todo directly in the database
+  setup do
+    # Clear in-memory store before each test (when in in_memory mode)
+    if Application.get_env(:todos_mcp, :storage_mode, :in_memory) == :in_memory do
+      InMemoryStore.clear()
+    end
+
+    :ok
+  end
+
+  # Helper to create a todo via Run.execute (works in both database and in_memory modes)
   defp create_todo!(attrs) do
-    %Todo{}
-    |> Todo.changeset(Map.put(attrs, :id, Uniq.UUID.uuid7()))
-    |> Repo.insert!()
+    {:ok, todo} =
+      Run.execute(%CreateTodo{
+        title: attrs[:title] || attrs["title"],
+        description: attrs[:description] || attrs["description"],
+        priority: attrs[:priority] || attrs["priority"] || :medium
+      })
+
+    # If completed is requested, toggle it
+    if attrs[:completed] || attrs["completed"] do
+      {:ok, todo} = Run.execute(%ToggleTodo{id: todo.id})
+      todo
+    else
+      todo
+    end
   end
 
   # Helper to make JSON-RPC request and parse response
@@ -114,7 +137,7 @@ defmodule TodosMcp.Mcp.ProtocolTest do
       assert is_binary(result["id"])
 
       # Verify persisted
-      assert Repo.get(Todo, result["id"]) != nil
+      assert {:ok, _} = Run.execute(%GetTodo{id: result["id"]})
     end
 
     test "executes get_todo tool" do
@@ -201,7 +224,7 @@ defmodule TodosMcp.Mcp.ProtocolTest do
       assert result["id"] == todo.id
 
       # Verify deleted
-      assert Repo.get(Todo, todo.id) == nil
+      assert {:error, :not_found} = Run.execute(%GetTodo{id: todo.id})
     end
 
     test "executes search_todos tool" do
@@ -248,7 +271,8 @@ defmodule TodosMcp.Mcp.ProtocolTest do
       assert result["deleted"] == 2
 
       # Verify only active remains
-      assert Repo.aggregate(Todo, :count) == 1
+      {:ok, remaining} = Run.execute(%ListTodos{})
+      assert length(remaining) == 1
     end
 
     test "returns error for unknown tool" do

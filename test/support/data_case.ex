@@ -34,10 +34,13 @@ defmodule TodosMcp.DataCase do
 
   @doc """
   Sets up the sandbox based on the test tags.
+  Only sets up Ecto sandbox if using database storage mode.
   """
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(TodosMcp.Repo, shared: not tags[:async])
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+    if Application.get_env(:todos_mcp, :storage_mode, :in_memory) == :database do
+      pid = Ecto.Adapters.SQL.Sandbox.start_owner!(TodosMcp.Repo, shared: not tags[:async])
+      on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+    end
   end
 
   @doc """

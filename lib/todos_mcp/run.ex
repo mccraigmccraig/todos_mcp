@@ -8,6 +8,19 @@ defmodule TodosMcp.Run do
   - EctoPersist effect → Repo (persistence)
   - Throw effect → error handling
 
+  ## Storage Modes
+
+  - `:in_memory` (default) - Uses in-memory storage (no database required)
+  - `:database` - Uses Ecto/Postgres for persistence
+
+  Configure via application env or pass `:mode` option:
+
+      # config/config.exs
+      config :todos_mcp, :storage_mode, :in_memory
+
+      # Or per-call
+      Run.execute(operation, mode: :in_memory)
+
   ## Example
 
       alias TodosMcp.Run
@@ -23,26 +36,60 @@ defmodule TodosMcp.Run do
 
   alias Skuld.Comp
   alias Skuld.Effects.{Command, Query, EctoPersist, Fresh, Throw}
-  alias TodosMcp.{Repo, DomainHandler, DataAccess}
+  alias TodosMcp.{Repo, DomainHandler, DataAccess, InMemoryPersist}
 
   @doc """
   Execute a domain operation (command or query).
 
+  ## Options
+
+  - `:mode` - Storage mode: `:database` (default) or `:in_memory`
+
   Returns `{:ok, result}` on success or `{:error, reason}` on failure.
   """
-  @spec execute(struct()) :: {:ok, term()} | {:error, term()}
-  def execute(operation) do
+  @spec execute(struct(), keyword()) :: {:ok, term()} | {:error, term()}
+  def execute(operation, opts \\ []) do
+    mode = Keyword.get(opts, :mode, storage_mode())
+
     comp do
       result <- Command.execute(operation)
       result
     end
     |> Command.with_handler(&DomainHandler.handle/1)
-    |> Query.with_handler(%{DataAccess.Impl => :direct})
-    |> EctoPersist.with_handler(Repo)
+    |> with_storage_handlers(mode)
     |> Fresh.with_uuid7_handler()
     |> Throw.with_handler()
     |> Comp.run()
     |> extract_result()
+  end
+
+  @doc """
+  Get the configured storage mode.
+
+  Reads from application config `:todos_mcp, :storage_mode`.
+  Defaults to `:in_memory`.
+  """
+  @spec storage_mode() :: :database | :in_memory
+  def storage_mode do
+    Application.get_env(:todos_mcp, :storage_mode, :in_memory)
+  end
+
+  # Install storage handlers based on mode
+  defp with_storage_handlers(comp, :database) do
+    comp
+    |> Query.with_handler(%{DataAccess.Impl => :direct})
+    |> EctoPersist.with_handler(Repo)
+  end
+
+  defp with_storage_handlers(comp, :in_memory) do
+    # Redirect DataAccess.Impl requests to InMemoryImpl
+    comp
+    |> Query.with_handler(%{DataAccess.Impl => {DataAccess.InMemoryImpl, :delegate}})
+    |> InMemoryPersist.with_handler()
+  end
+
+  defp with_storage_handlers(_comp, mode) do
+    raise ArgumentError, "Unknown storage mode: #{inspect(mode)}. Use :database or :in_memory"
   end
 
   defp extract_result({result, _env}) do
