@@ -394,7 +394,7 @@ defmodule TodosMcpWeb.TodoLive do
         </div>
 
         <%!-- Messages --%>
-        <div class="flex-1 overflow-y-auto p-3 space-y-3" id="chat-messages">
+        <div class="flex-1 overflow-y-auto p-3 space-y-3" id="chat-messages" phx-hook="ScrollToBottom">
           <div :for={msg <- @chat_messages} class={message_class(msg.role)}>
             <div class="text-xs text-gray-500 mb-1">
               {if msg.role == :user, do: "You", else: "Assistant"}
