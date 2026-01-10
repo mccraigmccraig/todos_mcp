@@ -9,7 +9,7 @@ defmodule TodosMcpWeb.SettingsController do
   """
   def save_api_key(conn, %{"api_key" => api_key}) when api_key != "" do
     conn
-    |> put_session(:api_key, api_key)
+    |> put_session("api_key", api_key)
     |> put_flash(:info, "API key saved")
     |> redirect(to: ~p"/")
   end
@@ -25,7 +25,7 @@ defmodule TodosMcpWeb.SettingsController do
   """
   def clear_api_key(conn, _params) do
     conn
-    |> delete_session(:api_key)
+    |> delete_session("api_key")
     |> put_flash(:info, "API key cleared")
     |> redirect(to: ~p"/")
   end

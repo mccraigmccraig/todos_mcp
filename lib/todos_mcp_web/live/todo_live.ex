@@ -17,13 +17,15 @@ defmodule TodosMcpWeb.TodoLive do
     {:ok, todos} = Run.execute(%ListTodos{})
     {:ok, stats} = Run.execute(%GetStats{})
 
-    # Get API key from session (atom key) or environment
-    api_key = session[:api_key] || System.get_env("ANTHROPIC_API_KEY")
+    # Get API key from session (string key in LiveView) or environment
+    session_api_key = session["api_key"]
+    env_api_key = System.get_env("ANTHROPIC_API_KEY")
+    api_key = session_api_key || env_api_key
 
     api_key_source =
       cond do
-        session[:api_key] -> :session
-        System.get_env("ANTHROPIC_API_KEY") -> :env
+        session_api_key -> :session
+        env_api_key -> :env
         true -> nil
       end
 
