@@ -4,6 +4,8 @@ defmodule TodosMcpWeb.Router do
   pipeline :browser do
     plug(:accepts, ["html"])
     plug(:fetch_session)
+    plug(:fetch_cookies)
+    plug(TodosMcpWeb.Plugs.Tenant)
     plug(:fetch_live_flash)
     plug(:put_root_layout, html: {TodosMcpWeb.Layouts, :root})
     plug(:protect_from_forgery)
