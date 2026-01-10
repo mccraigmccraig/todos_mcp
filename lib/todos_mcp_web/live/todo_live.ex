@@ -448,8 +448,10 @@ defmodule TodosMcpWeb.TodoLive do
             <input
               type="text"
               name="message"
+              id="chat-input"
               value={@chat_input}
               phx-change="chat_input"
+              phx-hook="MaintainFocus"
               placeholder={if @api_key, do: "Ask me to manage your todos...", else: "Configure API key first"}
               disabled={!@api_key || @chat_loading}
               class="flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"

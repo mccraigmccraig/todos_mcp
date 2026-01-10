@@ -49,6 +49,21 @@ const Hooks = {
     scrollToBottom() {
       this.el.scrollTop = this.el.scrollHeight
     }
+  },
+  MaintainFocus: {
+    mounted() {
+      this.maybeFocus()
+    },
+    updated() {
+      // Refocus after LiveView updates (e.g., after form submit clears input)
+      this.maybeFocus()
+    },
+    maybeFocus() {
+      // Don't focus if disabled
+      if (!this.el.disabled) {
+        this.el.focus()
+      }
+    }
   }
 }
 
