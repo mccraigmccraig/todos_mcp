@@ -45,7 +45,7 @@ defmodule TodosMcpWeb.CoreComponents do
   attr :kind, :atom, values: [:info, :error], doc: "used for styling and flash lookup"
   attr :rest, :global, doc: "the arbitrary HTML attributes to add to the flash container"
 
-  slot :inner_block, doc: "the optional inner block that renders the flash message"
+  slot(:inner_block, doc: "the optional inner block that renders the flash message")
 
   def flash(assigns) do
     assigns = assign_new(assigns, :id, fn -> "flash-#{assigns.kind}" end)
@@ -91,7 +91,7 @@ defmodule TodosMcpWeb.CoreComponents do
   attr :rest, :global, include: ~w(href navigate patch method download name value disabled)
   attr :class, :any
   attr :variant, :string, values: ~w(primary)
-  slot :inner_block, required: true
+  slot(:inner_block, required: true)
 
   def button(%{rest: rest} = assigns) do
     variants = %{"primary" => "btn-primary", nil => "btn-primary btn-soft"}
@@ -308,9 +308,9 @@ defmodule TodosMcpWeb.CoreComponents do
   @doc """
   Renders a header with title.
   """
-  slot :inner_block, required: true
-  slot :subtitle
-  slot :actions
+  slot(:inner_block, required: true)
+  slot(:subtitle)
+  slot(:actions)
 
   def header(assigns) do
     ~H"""
@@ -351,7 +351,7 @@ defmodule TodosMcpWeb.CoreComponents do
     attr :label, :string
   end
 
-  slot :action, doc: "the slot for showing user actions in the last table column"
+  slot(:action, doc: "the slot for showing user actions in the last table column")
 
   def table(assigns) do
     assigns =
@@ -442,6 +442,52 @@ defmodule TodosMcpWeb.CoreComponents do
   def icon(%{name: "hero-" <> _} = assigns) do
     ~H"""
     <span class={[@name, @class]} />
+    """
+  end
+
+  @doc """
+  Renders a modal dialog.
+
+  ## Examples
+
+      <.modal id="api-key-modal">
+        <:title>Settings</:title>
+        <p>Modal content here</p>
+      </.modal>
+
+  JS commands to open/close:
+
+      JS.dispatch("modal:open", to: "#api-key-modal")
+      JS.dispatch("modal:close", to: "#api-key-modal")
+  """
+  attr :id, :string, required: true
+  attr :on_cancel, JS, default: %JS{}
+
+  slot(:title)
+  slot(:inner_block, required: true)
+
+  def modal(assigns) do
+    ~H"""
+    <dialog
+      id={@id}
+      class="modal"
+      phx-hook="Modal"
+    >
+      <div class="modal-box">
+        <form method="dialog">
+          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
+            <.icon name="hero-x-mark" class="size-5" />
+          </button>
+        </form>
+        <h3 :if={@title != []} class="font-bold text-lg mb-4">
+          {render_slot(@title)}
+        </h3>
+        {render_slot(@inner_block)}
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+      </form>
+    </dialog>
     """
   end
 

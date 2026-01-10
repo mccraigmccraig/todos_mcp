@@ -17,8 +17,15 @@ defmodule TodosMcpWeb.TodoLive do
     {:ok, todos} = Run.execute(%ListTodos{})
     {:ok, stats} = Run.execute(%GetStats{})
 
-    # Get API key from session or environment
-    api_key = session["api_key"] || System.get_env("ANTHROPIC_API_KEY")
+    # Get API key from session (atom key) or environment
+    api_key = session[:api_key] || System.get_env("ANTHROPIC_API_KEY")
+
+    api_key_source =
+      cond do
+        session[:api_key] -> :session
+        System.get_env("ANTHROPIC_API_KEY") -> :env
+        true -> nil
+      end
 
     {:ok,
      assign(socket,
@@ -28,6 +35,7 @@ defmodule TodosMcpWeb.TodoLive do
        new_todo_title: "",
        sidebar_open: true,
        api_key: api_key,
+       api_key_source: api_key_source,
        chat_messages: [],
        chat_input: "",
        chat_loading: false,
@@ -356,10 +364,31 @@ defmodule TodosMcpWeb.TodoLive do
           </button>
         </div>
 
-        <%!-- API Key Warning --%>
+        <%!-- API Key Status --%>
         <div :if={!@api_key} class="p-4 bg-amber-50 text-amber-800 text-sm">
           <p class="font-medium">API Key Required</p>
-          <p class="mt-1">Set ANTHROPIC_API_KEY environment variable to enable chat.</p>
+          <p class="mt-1">Configure your Anthropic API key to enable chat.</p>
+          <button
+            type="button"
+            onclick="document.getElementById('api-key-modal').showModal()"
+            class="mt-2 text-blue-600 hover:underline"
+          >
+            Configure API Key
+          </button>
+        </div>
+
+        <div :if={@api_key} class="px-3 py-2 text-xs text-gray-500 border-b border-base-300 flex items-center justify-between">
+          <span>
+            API Key: {if @api_key_source == :session, do: "configured", else: "from env"}
+          </span>
+          <button
+            type="button"
+            onclick="document.getElementById('api-key-modal').showModal()"
+            class="hover:text-gray-700"
+            title="Settings"
+          >
+            <.icon name="hero-cog-6-tooth" class="w-4 h-4" />
+          </button>
         </div>
 
         <%!-- Messages --%>
@@ -418,6 +447,59 @@ defmodule TodosMcpWeb.TodoLive do
           </div>
         </form>
       </div>
+
+      <%!-- API Key Settings Modal --%>
+      <.modal id="api-key-modal">
+        <:title>API Key Settings</:title>
+
+        <p class="text-sm text-gray-600 mb-4">
+          Enter your Anthropic API key to enable the AI assistant.
+          Your key is stored in your browser session and never sent to our servers.
+        </p>
+
+        <form action={~p"/settings/api-key"} method="post" class="space-y-4">
+          <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+
+          <div>
+            <label for="api_key" class="block text-sm font-medium mb-1">API Key</label>
+            <input
+              type="password"
+              name="api_key"
+              id="api_key"
+              placeholder="sk-ant-..."
+              class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="flex gap-2">
+            <button
+              type="submit"
+              class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+
+        <div :if={@api_key && @api_key_source == :session} class="mt-4 pt-4 border-t">
+          <form action={~p"/settings/api-key"} method="post">
+            <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+            <input type="hidden" name="_method" value="delete" />
+            <button
+              type="submit"
+              class="text-sm text-red-600 hover:underline"
+            >
+              Clear saved API key
+            </button>
+          </form>
+        </div>
+
+        <p :if={@api_key_source == :env} class="mt-4 pt-4 border-t text-xs text-gray-500">
+          Currently using API key from ANTHROPIC_API_KEY environment variable.
+          Setting a key here will override it for this session.
+        </p>
+      </.modal>
     </div>
     """
   end

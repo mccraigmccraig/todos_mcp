@@ -25,11 +25,27 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/todos_mcp"
 import topbar from "../vendor/topbar"
 
+// Custom hooks
+const Hooks = {
+  Modal: {
+    mounted() {
+      // Open modal via custom event
+      this.el.addEventListener("modal:open", () => {
+        this.el.showModal()
+      })
+      // Close modal via custom event
+      this.el.addEventListener("modal:close", () => {
+        this.el.close()
+      })
+    }
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, ...Hooks},
 })
 
 // Show progress bar on live navigation and form submits

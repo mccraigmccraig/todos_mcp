@@ -18,6 +18,10 @@ defmodule TodosMcpWeb.Router do
     pipe_through(:browser)
 
     live("/", TodoLive, :index)
+
+    # Settings routes for session management
+    post("/settings/api-key", SettingsController, :save_api_key)
+    delete("/settings/api-key", SettingsController, :clear_api_key)
   end
 
   # Other scopes may use custom stacks.
