@@ -6,6 +6,19 @@ defmodule TodosMcp.Todo do
   import Ecto.Changeset
 
   @primary_key {:id, :binary_id, autogenerate: false}
+  @derive {Jason.Encoder,
+           only: [
+             :id,
+             :title,
+             :description,
+             :completed,
+             :priority,
+             :due_date,
+             :tags,
+             :position,
+             :inserted_at,
+             :updated_at
+           ]}
 
   schema "todos" do
     field(:title, :string)
