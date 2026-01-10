@@ -80,7 +80,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
 
       {{:ok, todo}, calls} =
         run(%UpdateTodo{id: @uuid1, title: "New Title"},
-          queries: %{Query.key(DataAccess.Impl, :get_todo!, %{id: @uuid1}) => existing},
+          queries: %{Query.key(DataAccess.Impl, :get_todo, %{id: @uuid1}) => {:ok, existing}},
           persist: fn %EctoPersist.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
 
@@ -99,7 +99,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
 
       {{:ok, todo}, calls} =
         run(%ToggleTodo{id: @uuid1},
-          queries: %{Query.key(DataAccess.Impl, :get_todo!, %{id: @uuid1}) => existing},
+          queries: %{Query.key(DataAccess.Impl, :get_todo, %{id: @uuid1}) => {:ok, existing}},
           persist: fn %EctoPersist.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
 
@@ -120,7 +120,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
 
       {{:ok, deleted}, calls} =
         run(%DeleteTodo{id: @uuid1},
-          queries: %{Query.key(DataAccess.Impl, :get_todo!, %{id: @uuid1}) => existing},
+          queries: %{Query.key(DataAccess.Impl, :get_todo, %{id: @uuid1}) => {:ok, existing}},
           persist: fn %EctoPersist.Delete{input: s} -> {:ok, s} end
         )
 
@@ -135,7 +135,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
 
       {:ok, todo} =
         run(%GetTodo{id: @uuid1},
-          queries: %{Query.key(DataAccess.Impl, :get_todo, %{id: @uuid1}) => existing}
+          queries: %{Query.key(DataAccess.Impl, :get_todo, %{id: @uuid1}) => {:ok, existing}}
         )
 
       assert todo.id == @uuid1
@@ -145,7 +145,10 @@ defmodule TodosMcp.DomainHandlerStubTest do
     test "returns error when not found" do
       result =
         run(%GetTodo{id: @uuid_not_found},
-          queries: %{Query.key(DataAccess.Impl, :get_todo, %{id: @uuid_not_found}) => nil}
+          queries: %{
+            Query.key(DataAccess.Impl, :get_todo, %{id: @uuid_not_found}) =>
+              {:error, {:not_found, Todo, @uuid_not_found}}
+          }
         )
 
       assert result == {:error, :not_found}
@@ -166,7 +169,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
               filter: :all,
               sort_by: :inserted_at,
               sort_order: :desc
-            }) => todos
+            }) => {:ok, todos}
           }
         )
 
@@ -184,7 +187,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
 
       {{:ok, result}, calls} =
         run(%CompleteAll{},
-          queries: %{Query.key(DataAccess.Impl, :list_incomplete, %{}) => incomplete_todos},
+          queries: %{Query.key(DataAccess.Impl, :list_incomplete, %{}) => {:ok, incomplete_todos}},
           persist: fn %EctoPersist.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
 
@@ -198,7 +201,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
     test "returns zero when no incomplete todos" do
       {{:ok, result}, calls} =
         run(%CompleteAll{},
-          queries: %{Query.key(DataAccess.Impl, :list_incomplete, %{}) => []},
+          queries: %{Query.key(DataAccess.Impl, :list_incomplete, %{}) => {:ok, []}},
           persist: fn %EctoPersist.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
 
@@ -216,7 +219,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
 
       {{:ok, result}, calls} =
         run(%ClearCompleted{},
-          queries: %{Query.key(DataAccess.Impl, :list_completed, %{}) => completed_todos},
+          queries: %{Query.key(DataAccess.Impl, :list_completed, %{}) => {:ok, completed_todos}},
           persist: fn %EctoPersist.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
 
@@ -227,7 +230,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
     test "returns zero when no completed todos" do
       {{:ok, result}, calls} =
         run(%ClearCompleted{},
-          queries: %{Query.key(DataAccess.Impl, :list_completed, %{}) => []},
+          queries: %{Query.key(DataAccess.Impl, :list_completed, %{}) => {:ok, []}},
           persist: fn %EctoPersist.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
 
@@ -247,7 +250,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
         run(%SearchTodos{query: "Buy", limit: 10},
           queries: %{
             Query.key(DataAccess.Impl, :search_todos, %{query: "Buy", limit: 10}) =>
-              matching_todos
+              {:ok, matching_todos}
           }
         )
 
@@ -259,7 +262,8 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, result} =
         run(%SearchTodos{query: "nonexistent"},
           queries: %{
-            Query.key(DataAccess.Impl, :search_todos, %{query: "nonexistent", limit: 20}) => []
+            Query.key(DataAccess.Impl, :search_todos, %{query: "nonexistent", limit: 20}) =>
+              {:ok, []}
           }
         )
 
@@ -272,7 +276,8 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, result} =
         run(%GetStats{},
           queries: %{
-            Query.key(DataAccess.Impl, :get_stats, %{}) => %{total: 10, active: 6, completed: 4}
+            Query.key(DataAccess.Impl, :get_stats, %{}) =>
+              {:ok, %{total: 10, active: 6, completed: 4}}
           }
         )
 
@@ -283,7 +288,8 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, result} =
         run(%GetStats{},
           queries: %{
-            Query.key(DataAccess.Impl, :get_stats, %{}) => %{total: 0, active: 0, completed: 0}
+            Query.key(DataAccess.Impl, :get_stats, %{}) =>
+              {:ok, %{total: 0, active: 0, completed: 0}}
           }
         )
 

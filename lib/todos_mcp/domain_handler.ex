@@ -132,11 +132,11 @@ defmodule TodosMcp.DomainHandler do
 
   def handle(%GetTodo{id: id}) do
     comp do
-      todo <- DataAccess.get_todo(id)
+      result <- DataAccess.get_todo(id)
 
-      case todo do
-        nil -> {:error, :not_found}
-        todo -> {:ok, todo}
+      case result do
+        {:ok, todo} -> {:ok, todo}
+        {:error, {:not_found, _, _}} -> {:error, :not_found}
       end
     end
   end
