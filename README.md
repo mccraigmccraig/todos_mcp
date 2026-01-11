@@ -156,10 +156,9 @@ end
 
 The `Yield` effect lets the conversation **suspend** waiting for user input
 or tool execution, then **resume** when results are available. `Reader` provides
-constant config, while `State` manages mutable message history (captured by
-EffectLogger for cold resume). This is a natural fit for Phoenix LiveView's
-message-based architecture—no callbacks, no state machines, just a straightforward
-loop that suspends and resumes.
+constant config, while `State` manages mutable message history. This is a natural
+fit for Phoenix LiveView's message-based architecture—no callbacks, no state
+machines, just a straightforward loop that suspends and resumes.
 
 ### Voice Control
 
@@ -175,11 +174,10 @@ end
 The effect abstraction means we can swap Groq for OpenAI Whisper, local
 transcription, or a test stub—without changing the conversation logic.
 
-### Effect Logging and Cold Resume
+### Effect Logging for Debugging
 
-The conversation loop uses `EffectLogger` to capture a replayable log of all
-effect operations. This enables **cold resume**—the ability to serialize a
-suspended conversation and resume it later, even in a different process.
+The conversation loop uses `EffectLogger` to capture a log of effect operations,
+useful for **debugging and inspection**:
 
 ```elixir
 # Handler stack in ConversationRunner
@@ -216,25 +214,13 @@ comp =
    `State` effect data (the message history), not `Reader` config (tools, system
    prompt) which is constant and would bloat the log.
 
-4. **JSON Serialization** - The log is fully JSON-serializable:
+The **Log** button in the chat header lets you inspect the current effect log,
+showing the sequence of operations in the current conversation turn.
 
-   ```elixir
-   # After a yield, extract and serialize the log
-   log = EffectLogger.get_log(env)
-   json = Jason.encode!(log)
-
-   # Later: deserialize and resume
-   cold_log = EffectLogger.Log.from_json(Jason.decode!(json))
-   comp
-   |> EffectLogger.with_resume(cold_log, resume_value)
-   |> ...
-   ```
-
-   On resume, EffectLogger replays logged operations (returning cached values)
-   until reaching the suspension point, then continues with fresh execution.
-
-The View Log button in the chat UI lets you inspect the current effect log,
-showing the sequence of operations that led to the current conversation state.
+**Conversation Persistence**: For persisting conversations across sessions, the
+simplest approach is to extract the message history from `State` and use it to
+initialize a new conversation. EffectLogger also supports full cold resume via
+JSON serialization, though this is more verbose than needed for many use cases.
 
 ## Property-Based Testing
 
