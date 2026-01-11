@@ -118,29 +118,48 @@ comp
 |> Comp.run()
 ```
 
-### Why This Matters for LLM Integration
+### How This Helps with LLM Integration
 
 The LLM conversation loop is itself an effectful computation:
 
 ```elixir
-defcomp run(state) do
-  user_message <- Yield.yield(:await_user_input)     # Suspend for input
-  messages = state.messages ++ [%{role: "user", content: user_message}]
+defcomp run() do
+  # Mark loop iteration for EffectLogger pruning
+  _ <- EffectLogger.mark_loop(ConversationLoop)
 
-  result <- conversation_turn(messages, state.tools, [], 0)
+  # Get config (constant) via Reader - tools, system prompt
+  config <- Reader.ask(__MODULE__)
+
+  # Get mutable state via State effect - message history
+  state <- State.get(__MODULE__)
+
+  # Suspend waiting for user input
+  user_message <- Yield.yield(:await_user_input)
+
+  # Build messages and call LLM (may involve tool execution)
+  messages = state.messages ++ [%{role: "user", content: user_message}]
+  result <- conversation_turn(messages, config.tools, [], 0)
 
   case result do
     {:ok, text, final_messages, tool_executions} ->
-      _yielded <- Yield.yield({:response, text, tool_executions})
-      run(%{state | messages: final_messages})  # Loop
+      comp do
+        # Yield response to the UI
+        _ <- Yield.yield(%{type: :response, text: text, tool_executions: tool_executions})
+        # Update state with new messages
+        _ <- State.put(__MODULE__, %{state | messages: final_messages})
+        # Loop for next conversation turn
+        run()
+      end
   end
 end
 ```
 
 The `Yield` effect lets the conversation **suspend** waiting for user input
-or tool execution, then **resume** when results are available. This is a
-natural fit for Phoenix LiveView's message-based architecture—no callbacks,
-no state machines, just a straightforward loop that suspends and resumes.
+or tool execution, then **resume** when results are available. `Reader` provides
+constant config, while `State` manages mutable message history (captured by
+EffectLogger for cold resume). This is a natural fit for Phoenix LiveView's
+message-based architecture—no callbacks, no state machines, just a straightforward
+loop that suspends and resumes.
 
 ### Voice Control
 
