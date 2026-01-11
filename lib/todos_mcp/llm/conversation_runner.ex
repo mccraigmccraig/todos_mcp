@@ -159,18 +159,44 @@ defmodule TodosMcp.Llm.ConversationRunner do
   def get_log(%__MODULE__{log: log}), do: log
 
   @doc """
-  Get the effect log as pretty-printed JSON.
+  Get the effect log as pretty-printed Elixir inspect output.
 
   Useful for displaying the log in the UI to show how the
-  conversation state machine works.
+  conversation state machine works. Handles all Elixir terms.
+  """
+  @spec get_log_inspect(t()) :: String.t()
+  def get_log_inspect(%__MODULE__{log: nil}), do: "nil"
+
+  def get_log_inspect(%__MODULE__{log: log}) do
+    log
+    |> EffectLogger.Log.finalize()
+    |> inspect(pretty: true, limit: :infinity, printable_limit: :infinity)
+  end
+
+  @doc """
+  Get the effect log as JSON for cold resume.
+
+  This is the serialized format that can be used for cold resume
+  via `EffectLogger.with_resume/3`.
   """
   @spec get_log_json(t()) :: String.t()
   def get_log_json(%__MODULE__{log: nil}), do: "null"
 
   def get_log_json(%__MODULE__{log: log}) do
-    log
-    |> EffectLogger.Log.finalize()
-    |> inspect(pretty: true, limit: :infinity, printable_limit: :infinity)
+    try do
+      log
+      |> EffectLogger.Log.finalize()
+      |> Jason.encode!(pretty: true)
+    rescue
+      e ->
+        Jason.encode!(
+          %{
+            error: "Failed to serialize log to JSON",
+            message: Exception.message(e)
+          },
+          pretty: true
+        )
+    end
   end
 
   # Process yields until we get a response or await_user_input

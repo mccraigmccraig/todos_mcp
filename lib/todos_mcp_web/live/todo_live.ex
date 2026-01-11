@@ -73,7 +73,8 @@ defmodule TodosMcpWeb.TodoLive do
        is_recording: false,
        is_transcribing: false,
        # Log modal state
-       show_log_modal: false,
+       log_tab: :inspect,
+       log_inspect: nil,
        log_json: nil
      )}
   end
@@ -131,19 +132,22 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("show_log", _params, socket) do
-    log_json =
+    {log_inspect, log_json} =
       if socket.assigns.runner do
-        ConversationRunner.get_log_json(socket.assigns.runner)
+        {
+          ConversationRunner.get_log_inspect(socket.assigns.runner),
+          ConversationRunner.get_log_json(socket.assigns.runner)
+        }
       else
-        "no runner"
+        {"no runner", "null"}
       end
 
-    socket =
-      socket
-      |> assign(log_json: log_json)
-      |> push_event("open-log-modal", %{})
+    {:noreply, assign(socket, log_inspect: log_inspect, log_json: log_json)}
+  end
 
-    {:noreply, socket}
+  def handle_event("log_tab", %{"tab" => tab}, socket) do
+    tab = String.to_existing_atom(tab)
+    {:noreply, assign(socket, log_tab: tab)}
   end
 
   # Voice recording events
@@ -546,7 +550,7 @@ defmodule TodosMcpWeb.TodoLive do
           <div class="flex items-center gap-2">
             <button
               :if={@runner}
-              phx-click="show_log"
+              phx-click={JS.push("show_log") |> show_modal("log-modal")}
               class="text-sm text-gray-500 hover:text-gray-700"
               title="View effect log"
             >
@@ -568,7 +572,7 @@ defmodule TodosMcpWeb.TodoLive do
           <p class="mt-1">Configure your Anthropic API key to enable chat.</p>
           <button
             type="button"
-            onclick="document.getElementById('api-key-modal').showModal()"
+            phx-click={show_modal("api-key-modal")}
             class="mt-2 text-blue-600 hover:underline"
           >
             Configure API Key
@@ -584,7 +588,7 @@ defmodule TodosMcpWeb.TodoLive do
           </span>
           <button
             type="button"
-            onclick="document.getElementById('api-key-modal').showModal()"
+            phx-click={show_modal("api-key-modal")}
             class="hover:text-gray-700"
             title="Settings"
           >
@@ -686,15 +690,35 @@ defmodule TodosMcpWeb.TodoLive do
       </div>
 
       <%!-- Effect Log Modal --%>
-      <.modal id="log-modal">
+      <.modal id="log-modal" class="w-full max-w-4xl">
         <:title>Effect Log</:title>
         <p class="text-sm text-gray-600 mb-4">
-          This shows the Skuld EffectLogger log - a serializable record of all effects
-          executed in the conversation. The log is pruned after each loop iteration
-          to stay bounded.
+          Skuld EffectLogger captures all effects during execution. The log is pruned
+          after each loop iteration to stay bounded.
         </p>
+
+        <%!-- Tabs --%>
+        <div class="tabs tabs-bordered mb-4">
+          <button
+            phx-click="log_tab"
+            phx-value-tab="inspect"
+            class={["tab", @log_tab == :inspect && "tab-active"]}
+          >
+            Inspect
+          </button>
+          <button
+            phx-click="log_tab"
+            phx-value-tab="json"
+            class={["tab", @log_tab == :json && "tab-active"]}
+          >
+            JSON (Cold Resume)
+          </button>
+        </div>
+
+        <%!-- Tab Content - use hidden class instead of :if to avoid DOM changes --%>
         <div class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-[60vh] font-mono text-xs">
-          <pre>{@log_json || "null"}</pre>
+          <pre class={@log_tab != :inspect && "hidden"}>{@log_inspect || "nil"}</pre>
+          <pre class={@log_tab != :json && "hidden"}>{@log_json || "null"}</pre>
         </div>
       </.modal>
 

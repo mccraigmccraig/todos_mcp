@@ -27,18 +27,6 @@ import topbar from "../vendor/topbar"
 
 // Custom hooks
 const Hooks = {
-  Modal: {
-    mounted() {
-      // Open modal via custom event
-      this.el.addEventListener("modal:open", () => {
-        this.el.showModal()
-      })
-      // Close modal via custom event
-      this.el.addEventListener("modal:close", () => {
-        this.el.close()
-      })
-    }
-  },
   ScrollToBottom: {
     mounted() {
       this.scrollToBottom()
@@ -155,11 +143,6 @@ const liveSocket = new LiveSocket("/live", Socket, {
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
-
-// Handle open-log-modal push_event
-window.addEventListener("phx:open-log-modal", (_event) => {
-  document.getElementById("log-modal").showModal()
-})
 
 // connect if there are any LiveViews on the page
 liveSocket.connect()

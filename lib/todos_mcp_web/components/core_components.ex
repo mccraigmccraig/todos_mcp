@@ -448,6 +448,9 @@ defmodule TodosMcpWeb.CoreComponents do
   @doc """
   Renders a modal dialog.
 
+  Uses standard Phoenix approach with divs and JS commands, which is
+  more compatible with LiveView DOM patching than native <dialog>.
+
   ## Examples
 
       <.modal id="api-key-modal">
@@ -457,38 +460,117 @@ defmodule TodosMcpWeb.CoreComponents do
 
   JS commands to open/close:
 
-      JS.dispatch("modal:open", to: "#api-key-modal")
-      JS.dispatch("modal:close", to: "#api-key-modal")
+      show_modal("api-key-modal")
+      hide_modal("api-key-modal")
   """
   attr :id, :string, required: true
   attr :on_cancel, JS, default: %JS{}
+  attr :class, :string, default: nil
 
   slot(:title)
   slot(:inner_block, required: true)
 
   def modal(assigns) do
     ~H"""
-    <dialog
+    <div
       id={@id}
-      class="modal"
-      phx-hook="Modal"
+      phx-mounted={@on_cancel}
+      phx-remove={hide_modal(@id)}
+      data-cancel={JS.exec(@on_cancel, "phx-remove")}
+      class="relative z-50 hidden"
     >
-      <div class="modal-box">
-        <form method="dialog">
-          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
-            <.icon name="hero-x-mark" class="size-5" />
-          </button>
-        </form>
-        <h3 :if={@title != []} class="font-bold text-lg mb-4">
-          {render_slot(@title)}
-        </h3>
-        {render_slot(@inner_block)}
+      <%!-- Backdrop --%>
+      <div
+        id={"#{@id}-bg"}
+        class="bg-black/50 fixed inset-0 transition-opacity"
+        aria-hidden="true"
+      />
+      <%!-- Modal container --%>
+      <div
+        class="fixed inset-0 overflow-y-auto"
+        aria-labelledby={"#{@id}-title"}
+        aria-describedby={"#{@id}-description"}
+        role="dialog"
+        aria-modal="true"
+        tabindex="0"
+      >
+        <div class="flex min-h-full items-center justify-center p-4">
+          <div
+            id={"#{@id}-container"}
+            phx-window-keydown={JS.exec("data-cancel", to: "##{@id}")}
+            phx-key="escape"
+            phx-click-away={JS.exec("data-cancel", to: "##{@id}")}
+            class={[
+              "relative bg-base-100 rounded-lg shadow-xl p-6",
+              "w-full max-w-lg",
+              @class
+            ]}
+          >
+            <%!-- Close button --%>
+            <button
+              phx-click={JS.exec("data-cancel", to: "##{@id}")}
+              type="button"
+              class="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+              aria-label="close"
+            >
+              <.icon name="hero-x-mark" class="size-5" />
+            </button>
+            <%!-- Title --%>
+            <h3 :if={@title != []} id={"#{@id}-title"} class="font-bold text-lg mb-4">
+              {render_slot(@title)}
+            </h3>
+            <%!-- Content --%>
+            <div id={"#{@id}-content"}>
+              {render_slot(@inner_block)}
+            </div>
+          </div>
+        </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>close</button>
-      </form>
-    </dialog>
+    </div>
     """
+  end
+
+  @doc """
+  Shows a modal by ID.
+  """
+  def show_modal(js \\ %JS{}, id) when is_binary(id) do
+    js
+    |> JS.show(to: "##{id}")
+    |> JS.show(
+      to: "##{id}-bg",
+      time: 300,
+      transition: {"transition-opacity ease-out duration-300", "opacity-0", "opacity-100"}
+    )
+    |> JS.show(
+      to: "##{id}-container",
+      time: 300,
+      transition:
+        {"transition-all ease-out duration-300",
+         "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
+         "opacity-100 translate-y-0 sm:scale-100"}
+    )
+    |> JS.focus_first(to: "##{id}-container")
+  end
+
+  @doc """
+  Hides a modal by ID.
+  """
+  def hide_modal(js \\ %JS{}, id) when is_binary(id) do
+    js
+    |> JS.hide(
+      to: "##{id}-bg",
+      time: 200,
+      transition: {"transition-opacity ease-in duration-200", "opacity-100", "opacity-0"}
+    )
+    |> JS.hide(
+      to: "##{id}-container",
+      time: 200,
+      transition:
+        {"transition-all ease-in duration-200", "opacity-100 translate-y-0 sm:scale-100",
+         "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"}
+    )
+    |> JS.hide(to: "##{id}", time: 200)
+    |> JS.pop_focus()
   end
 
   ## JS Commands
