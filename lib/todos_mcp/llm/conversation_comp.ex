@@ -91,6 +91,7 @@ defmodule TodosMcp.Llm.ConversationComp do
 
   defmodule Config do
     @moduledoc "Constant conversation configuration (tools, system prompt)"
+    @derive Jason.Encoder
     defstruct tools: [],
               system: nil
   end
@@ -122,6 +123,7 @@ defmodule TodosMcp.Llm.ConversationComp do
 
   defmodule State do
     @moduledoc "Mutable conversation state (message history)"
+    @derive Jason.Encoder
     defstruct messages: []
   end
 
