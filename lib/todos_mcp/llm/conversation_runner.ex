@@ -169,20 +169,12 @@ defmodule TodosMcp.Llm.ConversationRunner do
       process_yields(result, %{runner | log: log})
     rescue
       e ->
-        IO.inspect(
-          %{
-            exception: Exception.message(e),
-            stacktrace: Exception.format_stacktrace(__STACKTRACE__)
-          },
-          label: "ConversationRunner exception"
-        )
-
         {:error, {:exception, Exception.message(e)}, runner}
     catch
       kind, reason ->
-        IO.inspect({kind, reason}, label: "ConversationRunner caught")
         {:error, {kind, reason}, runner}
     end
+  end
   end
 
   @doc """

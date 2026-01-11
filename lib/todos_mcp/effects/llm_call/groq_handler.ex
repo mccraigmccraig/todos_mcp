@@ -64,14 +64,9 @@ defmodule TodosMcp.Effects.LlmCall.GroqHandler do
 
       groq_opts = Keyword.put(merged_opts, :tools, tools)
 
-      result = Groq.send_messages(messages, groq_opts)
-      IO.inspect(result, label: "GroqHandler send_messages result", limit: :infinity)
-
-      case result do
+      case Groq.send_messages(messages, groq_opts) do
         {:ok, response} ->
-          normalized = normalize_response(response)
-          IO.inspect(normalized, label: "GroqHandler normalized response")
-          normalized
+          normalize_response(response)
 
         {:error, _} = error ->
           error
