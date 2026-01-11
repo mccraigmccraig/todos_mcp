@@ -411,10 +411,10 @@ defmodule TodosMcpWeb.TodoLive do
       <div class={["flex-1 overflow-y-auto", @sidebar_open && "mr-80"]}>
         <div class="max-w-2xl mx-auto p-6">
           <div class="flex justify-between items-center mb-6">
-            <h1 class="text-3xl font-bold">Todos</h1>
+            <h1 class="text-3xl font-bold text-base-content">Todos</h1>
             <button
               phx-click="toggle_sidebar"
-              class="text-gray-500 hover:text-gray-700"
+              class="text-base-content/50 hover:text-base-content/80"
               title={if @sidebar_open, do: "Hide chat", else: "Show chat"}
             >
               <.icon
@@ -437,12 +437,12 @@ defmodule TodosMcpWeb.TodoLive do
                 value={@new_todo_title}
                 phx-change="update_new_title"
                 placeholder="What needs to be done?"
-                class="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="flex-1 px-4 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 autofocus
               />
               <button
                 type="submit"
-                class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="px-4 py-2 bg-primary text-primary-content rounded-lg hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 Add
               </button>
@@ -450,7 +450,7 @@ defmodule TodosMcpWeb.TodoLive do
           </form>
 
           <%!-- Stats and bulk actions --%>
-          <div class="flex justify-between items-center mb-4 text-sm text-gray-600">
+          <div class="flex justify-between items-center mb-4 text-sm text-base-content/60">
             <span>
               {@stats.active} active, {@stats.completed} completed
             </span>
@@ -458,14 +458,14 @@ defmodule TodosMcpWeb.TodoLive do
               <button
                 :if={@stats.active > 0}
                 phx-click="complete_all"
-                class="text-blue-500 hover:underline"
+                class="text-primary hover:underline"
               >
                 Complete all
               </button>
               <button
                 :if={@stats.completed > 0}
                 phx-click="clear_completed"
-                class="text-red-500 hover:underline"
+                class="text-error hover:underline"
               >
                 Clear completed
               </button>
@@ -473,15 +473,15 @@ defmodule TodosMcpWeb.TodoLive do
           </div>
 
           <%!-- Filter tabs --%>
-          <div class="flex gap-4 mb-4 border-b">
+          <div class="flex gap-4 mb-4 border-b border-base-300">
             <button
               :for={filter <- [:all, :active, :completed]}
               phx-click="filter"
               phx-value-filter={filter}
               class={[
                 "pb-2 px-1",
-                @filter == filter && "border-b-2 border-blue-500 text-blue-500",
-                @filter != filter && "text-gray-500 hover:text-gray-700"
+                @filter == filter && "border-b-2 border-primary text-primary",
+                @filter != filter && "text-base-content/50 hover:text-base-content/80"
               ]}
             >
               {String.capitalize(to_string(filter))}
@@ -490,19 +490,19 @@ defmodule TodosMcpWeb.TodoLive do
 
           <%!-- Todo list --%>
           <ul class="space-y-2">
-            <li :for={todo <- @todos} class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg group">
+            <li :for={todo <- @todos} class="flex items-center gap-3 p-3 bg-base-200 rounded-lg group">
               <input
                 type="checkbox"
                 checked={todo.completed}
                 phx-click="toggle"
                 phx-value-id={todo.id}
-                class="w-5 h-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                class="w-5 h-5 rounded border-base-300 text-primary focus:ring-primary checkbox"
               />
               <div class="flex-1">
-                <span class={["text-gray-800", todo.completed && "line-through text-gray-400"]}>
+                <span class={["text-base-content", todo.completed && "line-through opacity-50"]}>
                   {todo.title}
                 </span>
-                <p :if={todo.description not in [nil, ""]} class={["text-sm mt-0.5", todo.completed && "line-through text-gray-300" || "text-gray-500"]}>
+                <p :if={todo.description not in [nil, ""]} class={["text-sm mt-0.5 opacity-70", todo.completed && "line-through opacity-40"]}>
                   {todo.description}
                 </p>
               </div>
@@ -510,8 +510,8 @@ defmodule TodosMcpWeb.TodoLive do
                 :if={todo.priority != :medium}
                 class={[
                   "text-xs px-2 py-1 rounded",
-                  todo.priority == :high && "bg-red-100 text-red-700",
-                  todo.priority == :low && "bg-gray-100 text-gray-600"
+                  todo.priority == :high && "bg-error/20 text-error",
+                  todo.priority == :low && "bg-base-300 text-base-content/60"
                 ]}
               >
                 {todo.priority}
@@ -519,14 +519,14 @@ defmodule TodosMcpWeb.TodoLive do
               <button
                 phx-click="delete"
                 phx-value-id={todo.id}
-                class="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700"
+                class="opacity-0 group-hover:opacity-100 text-error hover:text-error/80"
               >
                 <.icon name="hero-trash" class="w-5 h-5" />
               </button>
             </li>
           </ul>
 
-          <p :if={@todos == []} class="text-center text-gray-400 py-8">
+          <p :if={@todos == []} class="text-center text-base-content/40 py-8">
             <%= case @filter do %>
               <% :all -> %>
                 No todos yet. Add one above!
@@ -546,12 +546,12 @@ defmodule TodosMcpWeb.TodoLive do
       >
         <%!-- Header --%>
         <div class="flex items-center justify-between p-3 border-b border-base-300">
-          <h2 class="font-semibold">AI Assistant</h2>
+          <h2 class="font-semibold text-base-content">AI Assistant</h2>
           <div class="flex items-center gap-2">
             <button
               :if={@runner}
               phx-click={JS.push("show_log") |> show_modal("log-modal")}
-              class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 transition-colors"
+              class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors"
               title="View effect log"
             >
               <.icon name="hero-code-bracket" class="w-3.5 h-3.5" />
@@ -560,7 +560,7 @@ defmodule TodosMcpWeb.TodoLive do
             <button
               :if={@chat_messages != []}
               phx-click="chat_clear"
-              class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+              class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-base-content/70 bg-base-300 rounded-md hover:bg-base-100 transition-colors"
             >
               <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
               <span>Clear</span>
@@ -569,13 +569,13 @@ defmodule TodosMcpWeb.TodoLive do
         </div>
 
         <%!-- API Key Status --%>
-        <div :if={!@api_key} class="p-4 bg-amber-50 text-amber-800 text-sm">
+        <div :if={!@api_key} class="p-4 bg-warning/10 text-warning text-sm">
           <p class="font-medium">API Key Required</p>
-          <p class="mt-1">Configure your Anthropic API key to enable chat.</p>
+          <p class="mt-1 text-warning/80">Configure your Anthropic API key to enable chat.</p>
           <button
             type="button"
             phx-click={show_modal("api-key-modal")}
-            class="mt-2 text-blue-600 hover:underline"
+            class="mt-2 text-primary hover:underline"
           >
             Configure API Key
           </button>
@@ -583,7 +583,7 @@ defmodule TodosMcpWeb.TodoLive do
 
         <div
           :if={@api_key}
-          class="px-3 py-2 text-xs text-gray-500 border-b border-base-300 flex items-center justify-between"
+          class="px-3 py-2 text-xs text-base-content/50 border-b border-base-300 flex items-center justify-between"
         >
           <span>
             API Key: {if @api_key_source == :session, do: "configured", else: "from env"}
@@ -591,7 +591,7 @@ defmodule TodosMcpWeb.TodoLive do
           <button
             type="button"
             phx-click={show_modal("api-key-modal")}
-            class="hover:text-gray-700"
+            class="hover:text-base-content/80"
             title="Settings"
           >
             <.icon name="hero-cog-6-tooth" class="w-4 h-4" />
@@ -601,39 +601,39 @@ defmodule TodosMcpWeb.TodoLive do
         <%!-- Messages --%>
         <div class="flex-1 overflow-y-auto p-3 space-y-3" id="chat-messages" phx-hook="ScrollToBottom">
           <div :for={msg <- @chat_messages} class={message_class(msg.role)}>
-            <div class="text-xs text-gray-500 mb-1">
+            <div class="text-xs text-base-content/50 mb-1">
               {if msg.role == :user, do: "You", else: "Assistant"}
             </div>
-            <div class="whitespace-pre-wrap text-sm text-gray-900">{msg.content}</div>
+            <div class="whitespace-pre-wrap text-sm text-base-content">{msg.content}</div>
 
             <%!-- Tool executions --%>
             <div :if={msg[:tool_executions] && msg.tool_executions != []} class="mt-2 space-y-1">
               <div
                 :for={exec <- msg.tool_executions}
-                class="text-xs text-gray-900 bg-gray-200 rounded px-2 py-1"
+                class="text-xs text-base-content bg-base-100 rounded px-2 py-1"
               >
                 <span class="font-medium">{exec.tool}</span>
-                <span :if={match?({:ok, _}, exec.result)} class="text-green-600 ml-1">ok</span>
-                <span :if={match?({:error, _}, exec.result)} class="text-red-600 ml-1">error</span>
+                <span :if={match?({:ok, _}, exec.result)} class="text-success ml-1">ok</span>
+                <span :if={match?({:error, _}, exec.result)} class="text-error ml-1">error</span>
               </div>
             </div>
           </div>
 
           <%!-- Loading indicator --%>
-          <div :if={@chat_loading} class="flex items-center gap-2 text-gray-500">
+          <div :if={@chat_loading} class="flex items-center gap-2 text-base-content/50">
             <span class="loading loading-dots loading-sm"></span>
             <span class="text-sm">Thinking...</span>
           </div>
 
           <%!-- Transcribing indicator --%>
-          <div :if={@is_transcribing} class="flex items-center gap-2 text-gray-500">
+          <div :if={@is_transcribing} class="flex items-center gap-2 text-base-content/50">
             <span class="loading loading-dots loading-sm"></span>
             <span class="text-sm">Transcribing...</span>
           </div>
         </div>
 
         <%!-- Error display --%>
-        <div :if={@chat_error} class="px-3 py-2 bg-red-50 text-red-700 text-sm">
+        <div :if={@chat_error} class="px-3 py-2 bg-error/10 text-error text-sm">
           {@chat_error}
         </div>
 
@@ -651,7 +651,7 @@ defmodule TodosMcpWeb.TodoLive do
                 if @api_key, do: "Ask me to manage your todos...", else: "Configure API key first"
               }
               disabled={!@api_key || @chat_loading || @is_transcribing}
-              class="flex-1 min-w-0 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              class="flex-1 min-w-0 px-3 py-2 text-sm bg-base-300 border border-base-100 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
               autocomplete="off"
             />
             <%!-- Voice record button --%>
@@ -670,8 +670,8 @@ defmodule TodosMcpWeb.TodoLive do
               class={[
                 "flex-shrink-0 px-3 py-2 text-sm rounded-lg transition-colors",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
-                @is_recording && "bg-red-500 text-white animate-pulse",
-                !@is_recording && "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                @is_recording && "bg-error text-error-content animate-pulse",
+                !@is_recording && "bg-base-300 text-base-content hover:bg-base-100"
               ]}
             >
               <.icon
@@ -683,7 +683,7 @@ defmodule TodosMcpWeb.TodoLive do
               type="submit"
               disabled={!@api_key || @chat_loading || @is_transcribing || @chat_input == ""}
               title="Send message"
-              class="flex-shrink-0 px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="flex-shrink-0 px-3 py-2 bg-primary text-primary-content text-sm rounded-lg hover:bg-primary/80 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <.icon name="hero-paper-airplane" class="w-5 h-5" />
             </button>
@@ -694,7 +694,7 @@ defmodule TodosMcpWeb.TodoLive do
       <%!-- Effect Log Modal --%>
       <.modal id="log-modal" class="w-full max-w-4xl">
         <:title>Effect Log</:title>
-        <p class="text-sm text-gray-600 mb-4">
+        <p class="text-sm text-base-content/60 mb-4">
           Skuld EffectLogger captures all effects during execution. The log is pruned
           after each loop iteration to stay bounded.
         </p>
@@ -718,7 +718,7 @@ defmodule TodosMcpWeb.TodoLive do
         </div>
 
         <%!-- Tab Content - use hidden class instead of :if to avoid DOM changes --%>
-        <div class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-[60vh] font-mono text-xs">
+        <div class="bg-neutral text-success p-4 rounded-lg overflow-auto max-h-[60vh] font-mono text-xs">
           <pre class={@log_tab != :inspect && "hidden"}>{@log_inspect || "nil"}</pre>
           <pre class={@log_tab != :json && "hidden"}>{@log_json || "null"}</pre>
         </div>
@@ -728,7 +728,7 @@ defmodule TodosMcpWeb.TodoLive do
       <.modal id="api-key-modal">
         <:title>API Key Settings</:title>
 
-        <p class="text-sm text-gray-600 mb-4">
+        <p class="text-sm text-base-content/60 mb-4">
           Configure your API keys to enable AI features.
           Keys are stored in your browser session and never sent to our servers.
         </p>
@@ -737,42 +737,42 @@ defmodule TodosMcpWeb.TodoLive do
           <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
 
           <div>
-            <label for="api_key" class="block text-sm font-medium mb-1">
-              Anthropic API Key <span class="text-gray-400 font-normal">(for chat)</span>
+            <label for="api_key" class="block text-sm font-medium text-base-content mb-1">
+              Anthropic API Key <span class="text-base-content/40 font-normal">(for chat)</span>
             </label>
             <input
               type="password"
               name="api_key"
               id="api_key"
               placeholder="sk-ant-..."
-              class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
               autocomplete="off"
             />
-            <p :if={@api_key_source == :env} class="text-xs text-gray-500 mt-1">
+            <p :if={@api_key_source == :env} class="text-xs text-base-content/50 mt-1">
               Using key from ANTHROPIC_API_KEY env var
             </p>
           </div>
 
           <div>
-            <label for="groq_api_key" class="block text-sm font-medium mb-1">
-              Groq API Key <span class="text-gray-400 font-normal">(for voice, optional)</span>
+            <label for="groq_api_key" class="block text-sm font-medium text-base-content mb-1">
+              Groq API Key <span class="text-base-content/40 font-normal">(for voice, optional)</span>
             </label>
             <input
               type="password"
               name="groq_api_key"
               id="groq_api_key"
               placeholder="gsk_..."
-              class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
               autocomplete="off"
             />
-            <p :if={@groq_api_key && !@api_key_source} class="text-xs text-gray-500 mt-1">
+            <p :if={@groq_api_key && !@api_key_source} class="text-xs text-base-content/50 mt-1">
               Using key from GROQ_API_KEY env var
             </p>
-            <p class="text-xs text-gray-400 mt-1">
+            <p class="text-xs text-base-content/40 mt-1">
               <a
                 href="https://console.groq.com/keys"
                 target="_blank"
-                class="text-blue-500 hover:underline"
+                class="text-primary hover:underline"
               >
                 Create a free Groq API key
               </a>
@@ -782,20 +782,20 @@ defmodule TodosMcpWeb.TodoLive do
           <div class="flex gap-2">
             <button
               type="submit"
-              class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+              class="flex-1 px-4 py-2 bg-primary text-primary-content rounded-lg hover:bg-primary/80"
             >
               Save
             </button>
           </div>
         </form>
 
-        <div :if={@api_key && @api_key_source == :session} class="mt-4 pt-4 border-t">
+        <div :if={@api_key && @api_key_source == :session} class="mt-4 pt-4 border-t border-base-300">
           <form action={~p"/settings/api-key"} method="post">
             <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
             <input type="hidden" name="_method" value="delete" />
             <button
               type="submit"
-              class="text-sm text-red-600 hover:underline"
+              class="text-sm text-error hover:underline"
             >
               Clear saved API keys
             </button>
@@ -806,7 +806,7 @@ defmodule TodosMcpWeb.TodoLive do
     """
   end
 
-  defp message_class(:user), do: "bg-blue-50 rounded-lg p-3 ml-4"
-  defp message_class(:assistant), do: "bg-gray-100 rounded-lg p-3 mr-4"
-  defp message_class(_), do: "bg-gray-100 rounded-lg p-3"
+  defp message_class(:user), do: "bg-primary/10 rounded-lg p-3 ml-4"
+  defp message_class(:assistant), do: "bg-base-300 rounded-lg p-3 mr-4"
+  defp message_class(_), do: "bg-base-300 rounded-lg p-3"
 end
