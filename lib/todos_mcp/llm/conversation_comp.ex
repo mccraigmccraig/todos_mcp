@@ -58,7 +58,7 @@ defmodule TodosMcp.Llm.ConversationComp do
 
   use Skuld.Syntax
 
-  alias Skuld.Effects.{EffectLogger, Yield}
+  alias Skuld.Effects.{EffectLogger, Reader, Yield}
   alias Skuld.Effects.State, as: StateEffect
   alias TodosMcp.Effects.LlmCall
 
@@ -86,20 +86,47 @@ defmodule TodosMcp.Llm.ConversationComp do
   def default_system_prompt, do: @default_system_prompt
 
   #############################################################################
-  ## State
+  ## Config (constant, via Reader - not logged)
   #############################################################################
 
-  defmodule State do
-    @moduledoc "Conversation state"
-    defstruct messages: [],
-              tools: [],
+  defmodule Config do
+    @moduledoc "Constant conversation configuration (tools, system prompt)"
+    defstruct tools: [],
               system: nil
   end
 
-  @type state :: %State{
-          messages: [map()],
+  @type config :: %Config{
           tools: [map()],
           system: String.t() | nil
+        }
+
+  @doc """
+  Create conversation config.
+
+  ## Options
+
+  - `:tools` - Tool definitions in Claude format (default: [])
+  - `:system` - System prompt (default: built-in todo assistant prompt)
+  """
+  @spec initial_config(keyword()) :: config()
+  def initial_config(opts \\ []) do
+    %Config{
+      tools: Keyword.get(opts, :tools, []),
+      system: Keyword.get(opts, :system, @default_system_prompt)
+    }
+  end
+
+  #############################################################################
+  ## State (mutable, via State effect - logged)
+  #############################################################################
+
+  defmodule State do
+    @moduledoc "Mutable conversation state (message history)"
+    defstruct messages: []
+  end
+
+  @type state :: %State{
+          messages: [map()]
         }
 
   @doc """
@@ -107,15 +134,11 @@ defmodule TodosMcp.Llm.ConversationComp do
 
   ## Options
 
-  - `:tools` - Tool definitions in Claude format (default: [])
-  - `:system` - System prompt (default: built-in todo assistant prompt)
   - `:messages` - Initial messages (default: [])
   """
   @spec initial_state(keyword()) :: state()
   def initial_state(opts \\ []) do
     %State{
-      tools: Keyword.get(opts, :tools, []),
-      system: Keyword.get(opts, :system, @default_system_prompt),
       messages: Keyword.get(opts, :messages, [])
     }
   end
@@ -137,14 +160,17 @@ defmodule TodosMcp.Llm.ConversationComp do
   The computation never terminates normally - it loops forever.
   Use the Yield handler to control when to stop.
 
-  State is managed via the State effect with tag `ConversationComp`, which
-  ensures it gets captured in the EffectLogger for cold resume.
+  Config (tools, system) is via Reader effect - constant, not logged.
+  State (messages) is via State effect - mutable, logged for cold resume.
   """
   defcomp run() do
     # Mark loop iteration for EffectLogger pruning
     _ <- EffectLogger.mark_loop(ConversationLoop)
 
-    # Get current state via State effect
+    # Get config (constant) via Reader effect - not logged
+    config <- Reader.ask(__MODULE__)
+
+    # Get current state (mutable) via State effect - logged
     state <- StateEffect.get(__MODULE__)
 
     # Wait for user input
@@ -155,7 +181,7 @@ defmodule TodosMcp.Llm.ConversationComp do
     messages = state.messages ++ [user_msg]
 
     # Get LLM response (may involve tool execution loop)
-    result <- conversation_turn(messages, state.tools, [], 0)
+    result <- conversation_turn(messages, config.tools, [], 0)
 
     case result do
       {:ok, final_text, final_messages, tool_executions} ->

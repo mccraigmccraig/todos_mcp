@@ -5,16 +5,20 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
   alias Skuld.Comp
   alias Skuld.Comp.Suspend
-  alias Skuld.Effects.{EffectLogger, State, Yield, Throw}
+  alias Skuld.Effects.{EffectLogger, Reader, State, Yield, Throw}
   alias TodosMcp.Llm.ConversationComp
   alias TodosMcp.Effects.LlmCall
   alias TodosMcp.Effects.LlmCall.TestHandler
 
   # Helper to build computation with all handlers
-  defp build_comp(state, llm_handler) do
+  defp build_comp(llm_handler, opts \\ []) do
+    config = ConversationComp.initial_config(opts)
+    state = ConversationComp.initial_state(opts)
+
     ConversationComp.run()
     |> State.with_handler(state, tag: ConversationComp)
     |> EffectLogger.with_logging()
+    |> Reader.with_handler(config, tag: ConversationComp)
     |> LlmCall.with_handler(llm_handler)
     |> Yield.with_handler()
     |> Throw.with_handler()
@@ -22,8 +26,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
   describe "run/0 yields protocol" do
     test "first yield is :await_user_input" do
-      state = ConversationComp.initial_state()
-      comp = build_comp(state, TestHandler.text_response("Hello!"))
+      comp = build_comp(TestHandler.text_response("Hello!"))
 
       {result, _env} = Comp.run(comp)
 
@@ -31,8 +34,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
     end
 
     test "simple text response flow" do
-      state = ConversationComp.initial_state()
-      comp = build_comp(state, TestHandler.text_response("Hello back!"))
+      comp = build_comp(TestHandler.text_response("Hello back!"))
 
       # Step 1: Get :await_user_input
       {%Suspend{value: :await_user_input, resume: resume1}, _env} = Comp.run(comp)
@@ -55,8 +57,6 @@ defmodule TodosMcp.Llm.ConversationCompTest do
     end
 
     test "tool execution flow yields execute_tools" do
-      state = ConversationComp.initial_state()
-
       # First response requests tool, second is final response
       handler =
         TestHandler.sequence([
@@ -66,7 +66,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
           TestHandler.text_response("Here are your todos!")
         ])
 
-      comp = build_comp(state, handler)
+      comp = build_comp(handler)
 
       # Step 1: Get :await_user_input
       {%Suspend{value: :await_user_input, resume: resume1}, _env} = Comp.run(comp)
@@ -98,8 +98,6 @@ defmodule TodosMcp.Llm.ConversationCompTest do
     end
 
     test "multi-tool execution in single response" do
-      state = ConversationComp.initial_state()
-
       handler =
         TestHandler.sequence([
           TestHandler.tool_use_response([
@@ -109,7 +107,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
           TestHandler.text_response("Created both todos!")
         ])
 
-      comp = build_comp(state, handler)
+      comp = build_comp(handler)
 
       {%Suspend{resume: resume1}, _env} = Comp.run(comp)
       {result2, _env} = resume1.("Create two todos")
@@ -119,11 +117,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
     end
 
     test "handles LLM error gracefully" do
-      state = ConversationComp.initial_state()
-
-      comp =
-        build_comp(state, TestHandler.error_response(:api_error))
-        |> Throw.with_handler()
+      comp = build_comp(TestHandler.error_response(:api_error))
 
       {%Suspend{resume: resume1}, _env} = Comp.run(comp)
       {result2, _env} = resume1.("Hello")
@@ -137,24 +131,27 @@ defmodule TodosMcp.Llm.ConversationCompTest do
     end
   end
 
-  describe "initial_state/1" do
+  describe "initial_state/1 and initial_config/1" do
     test "creates state with defaults" do
       state = ConversationComp.initial_state()
-
       assert state.messages == []
-      assert state.tools == []
-      assert is_binary(state.system)
     end
 
-    test "accepts custom options" do
+    test "creates config with defaults" do
+      config = ConversationComp.initial_config()
+      assert config.tools == []
+      assert is_binary(config.system)
+    end
+
+    test "accepts custom config options" do
       tools = [%{name: "test_tool"}]
-      state = ConversationComp.initial_state(tools: tools, system: "Custom system")
+      config = ConversationComp.initial_config(tools: tools, system: "Custom system")
 
-      assert state.tools == tools
-      assert state.system == "Custom system"
+      assert config.tools == tools
+      assert config.system == "Custom system"
     end
 
-    test "accepts initial messages" do
+    test "accepts initial messages in state" do
       messages = [%{role: "user", content: "Hi"}]
       state = ConversationComp.initial_state(messages: messages)
 
@@ -164,8 +161,6 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
   describe "multi-turn conversation" do
     test "maintains message history across turns" do
-      state = ConversationComp.initial_state()
-
       # Use recording handler to verify messages
       call_count = :counters.new(1, [:atomics])
       last_messages = :ets.new(:last_messages, [:set, :public])
@@ -183,7 +178,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
         }
       end
 
-      comp = build_comp(state, handler)
+      comp = build_comp(handler)
 
       # Turn 1
       {%Suspend{resume: r1}, _} = Comp.run(comp)
@@ -211,8 +206,6 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
   describe "max tool iterations" do
     test "stops after max iterations" do
-      state = ConversationComp.initial_state()
-
       # Handler that always requests tools (would loop forever)
       handler = fn %LlmCall.SendMessages{} ->
         %{
@@ -223,7 +216,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
         }
       end
 
-      comp = build_comp(state, handler)
+      comp = build_comp(handler)
 
       {%Suspend{resume: resume1}, _} = Comp.run(comp)
       result = iterate_until_limit(resume1.("Test"), 0)

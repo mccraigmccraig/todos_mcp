@@ -39,7 +39,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
 
   alias Skuld.Comp
   alias Skuld.Comp.Suspend
-  alias Skuld.Effects.{EffectLogger, State, Yield, Throw}
+  alias Skuld.Effects.{EffectLogger, Reader, State, Yield, Throw}
   alias TodosMcp.Llm.{ConversationComp, Claude}
   alias TodosMcp.Effects.LlmCall
   alias TodosMcp.Mcp.Tools
@@ -98,20 +98,23 @@ defmodule TodosMcp.Llm.ConversationRunner do
       tools: tools
     }
 
-    # Build initial state for the conversation computation
-    initial_state =
-      ConversationComp.initial_state(
+    # Build config (constant - via Reader, not logged) and state (mutable - via State, logged)
+    conversation_config =
+      ConversationComp.initial_config(
         tools: tools,
         system: system || ConversationComp.default_system_prompt()
       )
 
+    initial_state = ConversationComp.initial_state()
+
     # Build the computation with handlers
-    # State handler is inside EffectLogger so state changes get logged
-    # EffectLogger is innermost to capture all effects including State and LlmCall
+    # Reader is outside EffectLogger (config lookups not logged)
+    # State is inside EffectLogger (state changes are logged for cold resume)
     comp =
       ConversationComp.run()
       |> State.with_handler(initial_state, tag: ConversationComp)
       |> EffectLogger.with_logging()
+      |> Reader.with_handler(conversation_config, tag: ConversationComp)
       |> LlmCall.with_handler(llm_handler(config))
       |> Yield.with_handler()
       |> Throw.with_handler()
