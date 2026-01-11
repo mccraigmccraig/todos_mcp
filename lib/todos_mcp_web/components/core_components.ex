@@ -502,8 +502,7 @@ defmodule TodosMcpWeb.CoreComponents do
             phx-click-away={JS.exec("data-cancel", to: "##{@id}")}
             class={[
               "relative bg-base-100 rounded-lg shadow-xl p-6",
-              "w-full max-w-lg",
-              @class
+              @class || "max-w-lg"
             ]}
           >
             <%!-- Close button --%>
