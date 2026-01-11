@@ -59,6 +59,7 @@ defmodule TodosMcp.Llm.ConversationComp do
   use Skuld.Syntax
 
   alias Skuld.Effects.{EffectLogger, Yield}
+  alias Skuld.Effects.State, as: StateEffect
   alias TodosMcp.Effects.LlmCall
 
   # Loop markers for EffectLogger pruning
@@ -135,10 +136,16 @@ defmodule TodosMcp.Llm.ConversationComp do
 
   The computation never terminates normally - it loops forever.
   Use the Yield handler to control when to stop.
+
+  State is managed via the State effect with tag `ConversationComp`, which
+  ensures it gets captured in the EffectLogger for cold resume.
   """
-  defcomp run(state) do
+  defcomp run() do
     # Mark loop iteration for EffectLogger pruning
     _ <- EffectLogger.mark_loop(ConversationLoop)
+
+    # Get current state via State effect
+    state <- StateEffect.get(__MODULE__)
 
     # Wait for user input
     user_message <- Yield.yield(:await_user_input)
@@ -157,15 +164,19 @@ defmodule TodosMcp.Llm.ConversationComp do
           _yielded <-
             Yield.yield(%{type: :response, text: final_text, tool_executions: tool_executions})
 
-          # Loop with updated state
-          run(%{state | messages: final_messages})
+          # Update state with new messages
+          _ <- StateEffect.put(__MODULE__, %{state | messages: final_messages})
+
+          # Loop
+          run()
         end
 
       {:error, reason} ->
         comp do
           # Yield error and continue (use map for JSON serialization)
           _yielded <- Yield.yield(%{type: :error, reason: reason})
-          run(state)
+          # State unchanged on error
+          run()
         end
     end
   end

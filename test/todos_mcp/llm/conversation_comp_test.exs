@@ -5,21 +5,25 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
   alias Skuld.Comp
   alias Skuld.Comp.Suspend
-  alias Skuld.Effects.{EffectLogger, Yield, Throw}
+  alias Skuld.Effects.{EffectLogger, State, Yield, Throw}
   alias TodosMcp.Llm.ConversationComp
   alias TodosMcp.Effects.LlmCall
   alias TodosMcp.Effects.LlmCall.TestHandler
 
-  describe "run/1 yields protocol" do
+  # Helper to build computation with all handlers
+  defp build_comp(state, llm_handler) do
+    ConversationComp.run()
+    |> State.with_handler(state, tag: ConversationComp)
+    |> EffectLogger.with_logging()
+    |> LlmCall.with_handler(llm_handler)
+    |> Yield.with_handler()
+    |> Throw.with_handler()
+  end
+
+  describe "run/0 yields protocol" do
     test "first yield is :await_user_input" do
       state = ConversationComp.initial_state()
-
-      comp =
-        ConversationComp.run(state)
-        |> EffectLogger.with_logging()
-        |> LlmCall.with_handler(TestHandler.text_response("Hello!"))
-        |> Yield.with_handler()
-        |> Throw.with_handler()
+      comp = build_comp(state, TestHandler.text_response("Hello!"))
 
       {result, _env} = Comp.run(comp)
 
@@ -28,13 +32,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
     test "simple text response flow" do
       state = ConversationComp.initial_state()
-
-      comp =
-        ConversationComp.run(state)
-        |> EffectLogger.with_logging()
-        |> LlmCall.with_handler(TestHandler.text_response("Hello back!"))
-        |> Yield.with_handler()
-        |> Throw.with_handler()
+      comp = build_comp(state, TestHandler.text_response("Hello back!"))
 
       # Step 1: Get :await_user_input
       {%Suspend{value: :await_user_input, resume: resume1}, _env} = Comp.run(comp)
@@ -68,12 +66,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
           TestHandler.text_response("Here are your todos!")
         ])
 
-      comp =
-        ConversationComp.run(state)
-        |> EffectLogger.with_logging()
-        |> LlmCall.with_handler(handler)
-        |> Yield.with_handler()
-        |> Throw.with_handler()
+      comp = build_comp(state, handler)
 
       # Step 1: Get :await_user_input
       {%Suspend{value: :await_user_input, resume: resume1}, _env} = Comp.run(comp)
@@ -116,12 +109,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
           TestHandler.text_response("Created both todos!")
         ])
 
-      comp =
-        ConversationComp.run(state)
-        |> EffectLogger.with_logging()
-        |> LlmCall.with_handler(handler)
-        |> Yield.with_handler()
-        |> Throw.with_handler()
+      comp = build_comp(state, handler)
 
       {%Suspend{resume: resume1}, _env} = Comp.run(comp)
       {result2, _env} = resume1.("Create two todos")
@@ -134,10 +122,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
       state = ConversationComp.initial_state()
 
       comp =
-        ConversationComp.run(state)
-        |> EffectLogger.with_logging()
-        |> LlmCall.with_handler(TestHandler.error_response(:api_error))
-        |> Yield.with_handler()
+        build_comp(state, TestHandler.error_response(:api_error))
         |> Throw.with_handler()
 
       {%Suspend{resume: resume1}, _env} = Comp.run(comp)
@@ -198,12 +183,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
         }
       end
 
-      comp =
-        ConversationComp.run(state)
-        |> EffectLogger.with_logging()
-        |> LlmCall.with_handler(handler)
-        |> Yield.with_handler()
-        |> Throw.with_handler()
+      comp = build_comp(state, handler)
 
       # Turn 1
       {%Suspend{resume: r1}, _} = Comp.run(comp)
@@ -243,12 +223,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
         }
       end
 
-      comp =
-        ConversationComp.run(state)
-        |> EffectLogger.with_logging()
-        |> LlmCall.with_handler(handler)
-        |> Yield.with_handler()
-        |> Throw.with_handler()
+      comp = build_comp(state, handler)
 
       {%Suspend{resume: resume1}, _} = Comp.run(comp)
       result = iterate_until_limit(resume1.("Test"), 0)
