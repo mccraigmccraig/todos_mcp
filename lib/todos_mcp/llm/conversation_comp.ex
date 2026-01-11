@@ -278,8 +278,14 @@ defmodule TodosMcp.Llm.ConversationComp do
     # The raw response has the original content blocks
     # Handle both atom and string keys (from JSON parsing)
     content = response.raw[:content] || response.raw["content"]
+    provider = response[:provider] || response["provider"]
+
     %{role: "assistant", content: content}
+    |> maybe_add_provider(provider)
   end
+
+  defp maybe_add_provider(msg, nil), do: msg
+  defp maybe_add_provider(msg, provider), do: Map.put(msg, :provider, provider)
 
   @doc false
   def tool_results_message(tool_uses, results) do
