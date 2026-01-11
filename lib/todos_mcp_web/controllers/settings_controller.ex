@@ -51,7 +51,8 @@ defmodule TodosMcpWeb.SettingsController do
   Save selected LLM provider to session.
   Returns JSON response for use with fetch API.
   """
-  def save_provider(conn, %{"provider" => provider}) when provider in ["claude", "gemini"] do
+  def save_provider(conn, %{"provider" => provider})
+      when provider in ["claude", "gemini", "groq"] do
     conn
     |> put_session("selected_provider", provider)
     |> json(%{ok: true})

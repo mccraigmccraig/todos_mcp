@@ -42,11 +42,11 @@ defmodule TodosMcp.Llm.ConversationRunner do
   alias Skuld.Effects.{EffectLogger, Reader, State, Yield, Throw}
   alias TodosMcp.Llm.{ConversationComp, Claude}
   alias TodosMcp.Effects.LlmCall
-  alias TodosMcp.Effects.LlmCall.{ClaudeHandler, GeminiHandler}
+  alias TodosMcp.Effects.LlmCall.{ClaudeHandler, GeminiHandler, GroqHandler}
   alias TodosMcp.Mcp.Tools
   alias TodosMcp.Run
 
-  @providers [:claude, :gemini]
+  @providers [:claude, :gemini, :groq]
 
   defstruct [:resume_fn, :config, :log]
 
@@ -324,6 +324,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
 
     case config.provider do
       :gemini -> GeminiHandler.handler(base_opts)
+      :groq -> GroqHandler.handler(base_opts)
       _claude -> ClaudeHandler.handler(base_opts)
     end
   end

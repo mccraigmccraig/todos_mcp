@@ -48,29 +48,35 @@ defmodule TodosMcpWeb.TodoLive do
     env_groq_key = System.get_env("GROQ_API_KEY")
     groq_api_key = session_groq_key || env_groq_key
 
+    # Build keys map for provider lookup
+    api_keys = %{anthropic: anthropic_api_key, gemini: gemini_api_key, groq: groq_api_key}
+
     # Get saved provider from session, with validation
     saved_provider = session["selected_provider"]
 
     selected_provider =
       case saved_provider do
+        "groq" when groq_api_key != nil ->
+          :groq
+
         "gemini" when gemini_api_key != nil ->
           :gemini
 
         "claude" when anthropic_api_key != nil ->
           :claude
 
-        # Fallback: prefer Claude if available, else Gemini
+        # Fallback: prefer Claude, then Groq, then Gemini
         _ ->
           cond do
             anthropic_api_key -> :claude
+            groq_api_key -> :groq
             gemini_api_key -> :gemini
             true -> :claude
           end
       end
 
     # Get API key for selected provider
-    current_api_key =
-      get_api_key_for_provider(selected_provider, anthropic_api_key, gemini_api_key)
+    current_api_key = get_api_key_for_provider(selected_provider, api_keys)
 
     # Initialize conversation runner (suspended at :await_user_input)
     runner =
@@ -120,9 +126,10 @@ defmodule TodosMcpWeb.TodoLive do
      )}
   end
 
-  defp get_api_key_for_provider(:claude, anthropic_key, _gemini_key), do: anthropic_key
-  defp get_api_key_for_provider(:gemini, _anthropic_key, gemini_key), do: gemini_key
-  defp get_api_key_for_provider(_, anthropic_key, _), do: anthropic_key
+  defp get_api_key_for_provider(:claude, keys), do: keys.anthropic
+  defp get_api_key_for_provider(:gemini, keys), do: keys.gemini
+  defp get_api_key_for_provider(:groq, keys), do: keys.groq
+  defp get_api_key_for_provider(_, keys), do: keys.anthropic
 
   defp start_runner(assigns) do
     api_key = assigns.api_key
@@ -187,12 +194,13 @@ defmodule TodosMcpWeb.TodoLive do
   def handle_event("change_provider", %{"provider" => provider_str}, socket) do
     provider = String.to_existing_atom(provider_str)
 
-    api_key =
-      get_api_key_for_provider(
-        provider,
-        socket.assigns.anthropic_api_key,
-        socket.assigns.gemini_api_key
-      )
+    api_keys = %{
+      anthropic: socket.assigns.anthropic_api_key,
+      gemini: socket.assigns.gemini_api_key,
+      groq: socket.assigns.groq_api_key
+    }
+
+    api_key = get_api_key_for_provider(provider, api_keys)
 
     # Start a new runner with the selected provider (clears conversation)
     runner =
@@ -649,6 +657,7 @@ defmodule TodosMcpWeb.TodoLive do
                 <%= Phoenix.HTML.Form.options_for_select(
                   [
                     {"Claude #{if @anthropic_api_key, do: "", else: "(no key)"}", "claude"},
+                    {"Groq #{if @groq_api_key, do: "", else: "(no key)"}", "groq"},
                     {"Gemini #{if @gemini_api_key, do: "", else: "(no key)"}", "gemini"}
                   ],
                   Atom.to_string(@selected_provider)
@@ -681,7 +690,7 @@ defmodule TodosMcpWeb.TodoLive do
         <div :if={!@api_key} class="p-4 bg-warning/10 text-warning text-sm">
           <p class="font-medium">API Key Required</p>
           <p class="mt-1 text-warning/80">
-            Configure your {if @selected_provider == :gemini, do: "Gemini", else: "Anthropic"} API key to enable chat.
+            Configure your {provider_display_name(@selected_provider)} API key to enable chat.
           </p>
           <button
             type="button"
@@ -946,4 +955,9 @@ defmodule TodosMcpWeb.TodoLive do
   defp message_class(:user), do: "bg-primary/10 rounded-lg p-3 ml-4"
   defp message_class(:assistant), do: "bg-base-300 rounded-lg p-3 mr-4"
   defp message_class(_), do: "bg-base-300 rounded-lg p-3"
+
+  defp provider_display_name(:claude), do: "Anthropic"
+  defp provider_display_name(:gemini), do: "Gemini"
+  defp provider_display_name(:groq), do: "Groq"
+  defp provider_display_name(_), do: "API"
 end

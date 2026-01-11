@@ -84,6 +84,7 @@ defmodule TodosMcp.Effects.LlmCall.ClaudeHandler do
       text: Claude.extract_text(response),
       tool_uses: normalize_tool_uses(Claude.extract_tool_uses(response)),
       needs_tools: Claude.needs_tool_execution?(response),
+      provider: :claude,
       raw: response
     }
   end

@@ -91,6 +91,7 @@ defmodule TodosMcp.Effects.LlmCall.GeminiHandler do
       text: Gemini.extract_text(response),
       tool_uses: normalize_function_calls(function_calls),
       needs_tools: function_calls != [],
+      provider: :gemini,
       raw: build_raw_response(response)
     }
   end

@@ -63,6 +63,7 @@ defmodule TodosMcp.Effects.LlmCall do
           text: String.t(),
           tool_uses: [tool_use()],
           needs_tools: boolean(),
+          provider: atom(),
           raw: term()
         }
 
