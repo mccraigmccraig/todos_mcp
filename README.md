@@ -224,7 +224,10 @@ JSON serialization, though this is more verbose than needed for many use cases.
 
 ## Property-Based Testing
 
-The biggest win from algebraic effects: **testability**.
+Algebraic effects shine when you need to swap out multiple dependencies at once.
+Unlike mocks (which compose poorly—try setting up three interacting mocks
+correctly), effect handlers compose naturally. Swap one handler stack for
+another and all the interactions just work.
 
 Since `DomainHandler` only *describes* operations via effects, we can run it
 with pure in-memory handlers instead of a real database:
@@ -258,8 +261,7 @@ end
 ```
 
 The **exact same domain logic** runs in production with Postgres and in tests
-with pure in-memory storage. No mocking, no test doubles—just different effect
-handlers.
+with pure in-memory storage—just different effect handlers.
 
 ## Getting Started
 
