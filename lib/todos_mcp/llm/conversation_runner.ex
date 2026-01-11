@@ -42,8 +42,11 @@ defmodule TodosMcp.Llm.ConversationRunner do
   alias Skuld.Effects.{EffectLogger, Reader, State, Yield, Throw}
   alias TodosMcp.Llm.{ConversationComp, Claude}
   alias TodosMcp.Effects.LlmCall
+  alias TodosMcp.Effects.LlmCall.{ClaudeHandler, GeminiHandler}
   alias TodosMcp.Mcp.Tools
   alias TodosMcp.Run
+
+  @providers [:claude, :gemini]
 
   defstruct [:resume_fn, :config, :log]
 
@@ -66,25 +69,34 @@ defmodule TodosMcp.Llm.ConversationRunner do
         }
 
   @doc """
+  Return the list of supported providers.
+  """
+  @spec providers() :: [atom()]
+  def providers, do: @providers
+
+  @doc """
   Start a new conversation.
 
   ## Options
 
-  - `:api_key` - Required. Anthropic API key.
+  - `:api_key` - Required. API key for the selected provider.
+  - `:provider` - LLM provider (`:claude` or `:gemini`). Default: `:claude`.
   - `:system` - System prompt (optional, has sensible default).
-  - `:model` - Claude model to use (optional).
+  - `:model` - Model to use (optional, provider-specific default).
   - `:tools` - Tool definitions (optional, defaults to all MCP tools).
+  - `:tenant_id` - Tenant ID for tool execution (optional).
 
   Returns `{:ok, runner}` when ready for user input.
   """
   @spec start(keyword()) :: {:ok, t()} | {:error, term()}
   def start(opts) do
     api_key = Keyword.fetch!(opts, :api_key)
+    provider = Keyword.get(opts, :provider, :claude)
     tenant_id = Keyword.get(opts, :tenant_id, "default")
     system = Keyword.get(opts, :system)
     model = Keyword.get(opts, :model)
 
-    # Get tools in Claude format
+    # Get tools in Claude format (GeminiHandler will convert as needed)
     tools =
       Keyword.get_lazy(opts, :tools, fn ->
         Tools.all() |> Claude.convert_tools()
@@ -92,6 +104,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
 
     config = %{
       api_key: api_key,
+      provider: provider,
       tenant_id: tenant_id,
       system: system,
       model: model,
@@ -301,7 +314,10 @@ defmodule TodosMcp.Llm.ConversationRunner do
       |> maybe_add(:model, config.model)
       |> maybe_add(:tools, config.tools)
 
-    LlmCall.ClaudeHandler.handler(base_opts)
+    case config.provider do
+      :gemini -> GeminiHandler.handler(base_opts)
+      _claude -> ClaudeHandler.handler(base_opts)
+    end
   end
 
   defp maybe_add(opts, _key, nil), do: opts

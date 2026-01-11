@@ -6,22 +6,23 @@ defmodule TodosMcpWeb.SettingsController do
 
   @doc """
   Save API keys to session and redirect back to home.
-  Handles both Anthropic and Groq API keys.
+  Handles Anthropic, Gemini, and Groq API keys.
   """
   def save_api_key(conn, params) do
     conn = maybe_save_key(conn, "api_key", params["api_key"])
+    conn = maybe_save_key(conn, "gemini_api_key", params["gemini_api_key"])
     conn = maybe_save_key(conn, "groq_api_key", params["groq_api_key"])
 
-    # Determine flash message based on what was saved
-    has_anthropic = params["api_key"] && params["api_key"] != ""
-    has_groq = params["groq_api_key"] && params["groq_api_key"] != ""
+    # Count how many keys were saved
+    keys_saved =
+      ["api_key", "gemini_api_key", "groq_api_key"]
+      |> Enum.count(fn key -> params[key] && params[key] != "" end)
 
     message =
-      case {has_anthropic, has_groq} do
-        {true, true} -> "API keys saved"
-        {true, false} -> "Anthropic API key saved"
-        {false, true} -> "Groq API key saved"
-        {false, false} -> "No changes made"
+      case keys_saved do
+        0 -> "No changes made"
+        1 -> "API key saved"
+        _ -> "API keys saved"
       end
 
     conn
@@ -39,6 +40,7 @@ defmodule TodosMcpWeb.SettingsController do
   def clear_api_key(conn, _params) do
     conn
     |> delete_session("api_key")
+    |> delete_session("gemini_api_key")
     |> delete_session("groq_api_key")
     |> put_flash(:info, "API keys cleared")
     |> redirect(to: ~p"/")

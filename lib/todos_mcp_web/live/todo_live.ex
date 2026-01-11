@@ -25,10 +25,11 @@ defmodule TodosMcpWeb.TodoLive do
     {:ok, todos} = Run.execute(%ListTodos{}, tenant_id: tenant_id)
     {:ok, stats} = Run.execute(%GetStats{}, tenant_id: tenant_id)
 
-    # Get API key from session (string key in LiveView) or environment
+    # Get API keys from session or environment
+    # Anthropic (Claude)
     session_api_key = session["api_key"]
     env_api_key = System.get_env("ANTHROPIC_API_KEY")
-    api_key = session_api_key || env_api_key
+    anthropic_api_key = session_api_key || env_api_key
 
     api_key_source =
       cond do
@@ -37,15 +38,36 @@ defmodule TodosMcpWeb.TodoLive do
         true -> nil
       end
 
-    # Groq API key for voice transcription (from session or environment)
+    # Gemini
+    session_gemini_key = session["gemini_api_key"]
+    env_gemini_key = System.get_env("GEMINI_API_KEY")
+    gemini_api_key = session_gemini_key || env_gemini_key
+
+    # Groq (for voice transcription)
     session_groq_key = session["groq_api_key"]
     env_groq_key = System.get_env("GROQ_API_KEY")
     groq_api_key = session_groq_key || env_groq_key
 
+    # Select default provider based on available keys
+    selected_provider =
+      cond do
+        anthropic_api_key -> :claude
+        gemini_api_key -> :gemini
+        true -> :claude
+      end
+
+    # Get API key for selected provider
+    current_api_key =
+      get_api_key_for_provider(selected_provider, anthropic_api_key, gemini_api_key)
+
     # Initialize conversation runner (suspended at :await_user_input)
     runner =
-      if api_key do
-        case ConversationRunner.start(api_key: api_key, tenant_id: tenant_id) do
+      if current_api_key do
+        case ConversationRunner.start(
+               api_key: current_api_key,
+               provider: selected_provider,
+               tenant_id: tenant_id
+             ) do
           {:ok, runner} -> runner
           {:error, _reason} -> nil
         end
@@ -61,9 +83,16 @@ defmodule TodosMcpWeb.TodoLive do
        filter: :all,
        new_todo_title: "",
        sidebar_open: true,
-       api_key: api_key,
-       api_key_source: api_key_source,
+       # API keys
+       anthropic_api_key: anthropic_api_key,
+       gemini_api_key: gemini_api_key,
        groq_api_key: groq_api_key,
+       api_key_source: api_key_source,
+       # Provider selection
+       selected_provider: selected_provider,
+       # Computed: current provider's API key (for UI convenience)
+       api_key: current_api_key,
+       # Chat state
        chat_messages: [],
        chat_input: "",
        chat_loading: false,
@@ -77,6 +106,27 @@ defmodule TodosMcpWeb.TodoLive do
        log_inspect: nil,
        log_json: nil
      )}
+  end
+
+  defp get_api_key_for_provider(:claude, anthropic_key, _gemini_key), do: anthropic_key
+  defp get_api_key_for_provider(:gemini, _anthropic_key, gemini_key), do: gemini_key
+  defp get_api_key_for_provider(_, anthropic_key, _), do: anthropic_key
+
+  defp start_runner(assigns) do
+    api_key = assigns.api_key
+
+    if api_key do
+      case ConversationRunner.start(
+             api_key: api_key,
+             provider: assigns.selected_provider,
+             tenant_id: assigns.tenant_id
+           ) do
+        {:ok, runner} -> runner
+        {:error, _reason} -> nil
+      end
+    else
+      nil
+    end
   end
 
   # All handle_event clauses grouped together
@@ -117,10 +167,29 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   def handle_event("chat_clear", _params, socket) do
-    # Start a fresh conversation runner
+    # Start a fresh conversation runner with current provider
+    runner = start_runner(socket.assigns)
+    {:noreply, assign(socket, runner: runner, chat_messages: [], chat_error: nil)}
+  end
+
+  def handle_event("change_provider", %{"provider" => provider_str}, socket) do
+    provider = String.to_existing_atom(provider_str)
+
+    api_key =
+      get_api_key_for_provider(
+        provider,
+        socket.assigns.anthropic_api_key,
+        socket.assigns.gemini_api_key
+      )
+
+    # Start a new runner with the selected provider (clears conversation)
     runner =
-      if socket.assigns.api_key do
-        case ConversationRunner.start(api_key: socket.assigns.api_key) do
+      if api_key do
+        case ConversationRunner.start(
+               api_key: api_key,
+               provider: provider,
+               tenant_id: socket.assigns.tenant_id
+             ) do
           {:ok, runner} -> runner
           {:error, _reason} -> nil
         end
@@ -128,7 +197,14 @@ defmodule TodosMcpWeb.TodoLive do
         nil
       end
 
-    {:noreply, assign(socket, runner: runner, chat_messages: [], chat_error: nil)}
+    {:noreply,
+     assign(socket,
+       selected_provider: provider,
+       api_key: api_key,
+       runner: runner,
+       chat_messages: [],
+       chat_error: nil
+     )}
   end
 
   def handle_event("show_log", _params, socket) do
@@ -546,7 +622,21 @@ defmodule TodosMcpWeb.TodoLive do
       >
         <%!-- Header --%>
         <div class="flex items-center justify-between p-3 border-b border-base-300">
-          <h2 class="font-semibold text-base-content">AI Assistant</h2>
+          <div class="flex items-center gap-2">
+            <h2 class="font-semibold text-base-content">AI</h2>
+            <select
+              phx-change="change_provider"
+              name="provider"
+              class="select select-xs bg-base-300 border-base-100 text-base-content min-h-0 h-7 pl-2 pr-6"
+            >
+              <option value="claude" selected={@selected_provider == :claude}>
+                Claude {if @anthropic_api_key, do: "", else: "(no key)"}
+              </option>
+              <option value="gemini" selected={@selected_provider == :gemini}>
+                Gemini {if @gemini_api_key, do: "", else: "(no key)"}
+              </option>
+            </select>
+          </div>
           <div class="flex items-center gap-2">
             <button
               :if={@runner}
@@ -571,7 +661,9 @@ defmodule TodosMcpWeb.TodoLive do
         <%!-- API Key Status --%>
         <div :if={!@api_key} class="p-4 bg-warning/10 text-warning text-sm">
           <p class="font-medium">API Key Required</p>
-          <p class="mt-1 text-warning/80">Configure your Anthropic API key to enable chat.</p>
+          <p class="mt-1 text-warning/80">
+            Configure your {if @selected_provider == :gemini, do: "Gemini", else: "Anthropic"} API key to enable chat.
+          </p>
           <button
             type="button"
             phx-click={show_modal("api-key-modal")}
@@ -738,7 +830,7 @@ defmodule TodosMcpWeb.TodoLive do
 
           <div>
             <label for="api_key" class="block text-sm font-medium text-base-content mb-1">
-              Anthropic API Key <span class="text-base-content/40 font-normal">(for chat)</span>
+              Anthropic API Key <span class="text-base-content/40 font-normal">(Claude)</span>
             </label>
             <input
               type="password"
@@ -750,6 +842,32 @@ defmodule TodosMcpWeb.TodoLive do
             />
             <p :if={@api_key_source == :env} class="text-xs text-base-content/50 mt-1">
               Using key from ANTHROPIC_API_KEY env var
+            </p>
+          </div>
+
+          <div>
+            <label for="gemini_api_key" class="block text-sm font-medium text-base-content mb-1">
+              Google AI API Key <span class="text-base-content/40 font-normal">(Gemini - free tier)</span>
+            </label>
+            <input
+              type="password"
+              name="gemini_api_key"
+              id="gemini_api_key"
+              placeholder="AIza..."
+              class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              autocomplete="off"
+            />
+            <p :if={@gemini_api_key && !@api_key_source} class="text-xs text-base-content/50 mt-1">
+              Using key from GEMINI_API_KEY env var
+            </p>
+            <p class="text-xs text-base-content/40 mt-1">
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                class="text-primary hover:underline"
+              >
+                Get a free Google AI API key
+              </a>
             </p>
           </div>
 
