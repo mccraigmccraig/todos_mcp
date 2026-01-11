@@ -718,7 +718,7 @@ defmodule TodosMcpWeb.TodoLive do
         </div>
 
         <%!-- Tab Content - use hidden class instead of :if to avoid DOM changes --%>
-        <div class="bg-neutral text-success p-4 rounded-lg overflow-auto max-h-[60vh] font-mono text-xs">
+        <div class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-[60vh] font-mono text-xs">
           <pre class={@log_tab != :inspect && "hidden"}>{@log_inspect || "nil"}</pre>
           <pre class={@log_tab != :json && "hidden"}>{@log_json || "null"}</pre>
         </div>
