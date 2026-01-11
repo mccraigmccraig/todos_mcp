@@ -39,17 +39,18 @@ defmodule TodosMcp.Llm.ConversationRunner do
 
   alias Skuld.Comp
   alias Skuld.Comp.Suspend
-  alias Skuld.Effects.{Yield, Throw}
+  alias Skuld.Effects.{EffectLogger, Yield, Throw}
   alias TodosMcp.Llm.{ConversationComp, Claude}
   alias TodosMcp.Effects.LlmCall
   alias TodosMcp.Mcp.Tools
   alias TodosMcp.Run
 
-  defstruct [:resume_fn, :config]
+  defstruct [:resume_fn, :config, :log]
 
   @type t :: %__MODULE__{
           resume_fn: (term() -> {term(), Skuld.Comp.Types.env()}),
-          config: map()
+          config: map(),
+          log: EffectLogger.Log.t() | nil
         }
 
   @type response :: %{
@@ -105,16 +106,19 @@ defmodule TodosMcp.Llm.ConversationRunner do
       )
 
     # Build the computation with handlers
+    # EffectLogger is innermost to capture all effects including LlmCall
     comp =
       ConversationComp.run(state)
+      |> EffectLogger.with_logging()
       |> LlmCall.with_handler(llm_handler(config))
       |> Yield.with_handler()
       |> Throw.with_handler()
 
     # Run until first yield (should be :await_user_input)
     case Comp.run(comp) do
-      {%Suspend{value: :await_user_input, resume: resume}, _env} ->
-        {:ok, %__MODULE__{resume_fn: resume, config: config}}
+      {%Suspend{value: :await_user_input, resume: resume}, env} ->
+        log = EffectLogger.get_log(env)
+        {:ok, %__MODULE__{resume_fn: resume, config: config, log: log}}
 
       {%Suspend{value: other}, _env} ->
         {:error, {:unexpected_yield, other}}
@@ -140,8 +144,33 @@ defmodule TodosMcp.Llm.ConversationRunner do
           {:ok, response(), t()} | {:error, term(), t()}
   def send_message(%__MODULE__{resume_fn: resume} = runner, message) do
     # Resume with user message
-    {result, _env} = resume.(message)
-    process_yields(result, runner)
+    {result, env} = resume.(message)
+    log = EffectLogger.get_log(env)
+    process_yields(result, %{runner | log: log})
+  end
+
+  @doc """
+  Get the current effect log.
+
+  Returns the EffectLogger.Log struct capturing all effects executed so far.
+  The log is pruned after each loop iteration to stay bounded.
+  """
+  @spec get_log(t()) :: EffectLogger.Log.t() | nil
+  def get_log(%__MODULE__{log: log}), do: log
+
+  @doc """
+  Get the effect log as pretty-printed JSON.
+
+  Useful for displaying the log in the UI to show how the
+  conversation state machine works.
+  """
+  @spec get_log_json(t()) :: String.t()
+  def get_log_json(%__MODULE__{log: nil}), do: "null"
+
+  def get_log_json(%__MODULE__{log: log}) do
+    log
+    |> EffectLogger.Log.finalize()
+    |> inspect(pretty: true, limit: :infinity, printable_limit: :infinity)
   end
 
   # Process yields until we get a response or await_user_input
@@ -152,21 +181,24 @@ defmodule TodosMcp.Llm.ConversationRunner do
         # but handle it gracefully by returning an empty response
         {:ok, %{text: "", tool_executions: []}, %{runner | resume_fn: resume}}
 
-      {:execute_tools, tool_requests} ->
+      %{type: :execute_tools, tool_uses: tool_requests} ->
         # Execute tools and continue
         results = execute_tools(tool_requests, runner.config.tenant_id)
-        {next_result, _env} = resume.(results)
-        process_yields(next_result, runner)
+        {next_result, env} = resume.(results)
+        log = EffectLogger.get_log(env)
+        process_yields(next_result, %{runner | log: log})
 
-      {:response, text, tool_executions} ->
+      %{type: :response, text: text, tool_executions: tool_executions} ->
         # Got a response - resume to get back to await_user_input, then return
-        {next_result, _env} = resume.(:ok)
-        finalize_response(next_result, runner, text, tool_executions)
+        {next_result, env} = resume.(:ok)
+        log = EffectLogger.get_log(env)
+        finalize_response(next_result, %{runner | log: log}, text, tool_executions)
 
-      {:error, reason} ->
+      %{type: :error, reason: reason} ->
         # Error occurred - resume to continue, then return error
-        {next_result, _env} = resume.(:ok)
-        finalize_error(next_result, runner, reason)
+        {next_result, env} = resume.(:ok)
+        log = EffectLogger.get_log(env)
+        finalize_error(next_result, %{runner | log: log}, reason)
     end
   end
 

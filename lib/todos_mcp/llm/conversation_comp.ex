@@ -58,8 +58,17 @@ defmodule TodosMcp.Llm.ConversationComp do
 
   use Skuld.Syntax
 
-  alias Skuld.Effects.Yield
+  alias Skuld.Effects.{EffectLogger, Yield}
   alias TodosMcp.Effects.LlmCall
+
+  # Loop markers for EffectLogger pruning
+  defmodule ConversationLoop do
+    @moduledoc false
+  end
+
+  defmodule ToolIterationLoop do
+    @moduledoc false
+  end
 
   @default_system_prompt """
   You are a helpful assistant that manages a todo list application.
@@ -128,6 +137,9 @@ defmodule TodosMcp.Llm.ConversationComp do
   Use the Yield handler to control when to stop.
   """
   defcomp run(state) do
+    # Mark loop iteration for EffectLogger pruning
+    _ <- EffectLogger.mark_loop(ConversationLoop)
+
     # Wait for user input
     user_message <- Yield.yield(:await_user_input)
 
@@ -141,8 +153,9 @@ defmodule TodosMcp.Llm.ConversationComp do
     case result do
       {:ok, final_text, final_messages, tool_executions} ->
         comp do
-          # Yield the response to the UI
-          _yielded <- Yield.yield({:response, final_text, tool_executions})
+          # Yield the response to the UI (use map for JSON serialization)
+          _yielded <-
+            Yield.yield(%{type: :response, text: final_text, tool_executions: tool_executions})
 
           # Loop with updated state
           run(%{state | messages: final_messages})
@@ -150,8 +163,8 @@ defmodule TodosMcp.Llm.ConversationComp do
 
       {:error, reason} ->
         comp do
-          # Yield error and continue
-          _yielded <- Yield.yield({:error, reason})
+          # Yield error and continue (use map for JSON serialization)
+          _yielded <- Yield.yield(%{type: :error, reason: reason})
           run(state)
         end
     end
@@ -166,6 +179,9 @@ defmodule TodosMcp.Llm.ConversationComp do
       {:error, :max_tool_iterations}
     else
       comp do
+        # Mark tool iteration loop for EffectLogger pruning
+        _ <- EffectLogger.mark_loop(ToolIterationLoop)
+
         response <- LlmCall.send_messages(messages, tools: tools)
 
         case response do
@@ -183,7 +199,8 @@ defmodule TodosMcp.Llm.ConversationComp do
   defcompp handle_response(response, messages, tools, tool_executions, iteration) do
     if response.needs_tools do
       comp do
-        tool_results <- Yield.yield({:execute_tools, response.tool_uses})
+        # Use map for JSON serialization
+        tool_results <- Yield.yield(%{type: :execute_tools, tool_uses: response.tool_uses})
 
         result_msg = tool_results_message(response.tool_uses, tool_results)
         updated_messages = messages ++ [result_msg]

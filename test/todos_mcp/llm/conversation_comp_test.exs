@@ -5,7 +5,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
   alias Skuld.Comp
   alias Skuld.Comp.Suspend
-  alias Skuld.Effects.{Yield, Throw}
+  alias Skuld.Effects.{EffectLogger, Yield, Throw}
   alias TodosMcp.Llm.ConversationComp
   alias TodosMcp.Effects.LlmCall
   alias TodosMcp.Effects.LlmCall.TestHandler
@@ -16,6 +16,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
       comp =
         ConversationComp.run(state)
+        |> EffectLogger.with_logging()
         |> LlmCall.with_handler(TestHandler.text_response("Hello!"))
         |> Yield.with_handler()
         |> Throw.with_handler()
@@ -30,6 +31,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
       comp =
         ConversationComp.run(state)
+        |> EffectLogger.with_logging()
         |> LlmCall.with_handler(TestHandler.text_response("Hello back!"))
         |> Yield.with_handler()
         |> Throw.with_handler()
@@ -40,7 +42,11 @@ defmodule TodosMcp.Llm.ConversationCompTest do
       # Step 2: Provide user input, get response
       {result2, _env} = resume1.("Hi there")
 
-      assert %Suspend{value: {:response, text, tool_executions}, resume: resume2} = result2
+      assert %Suspend{
+               value: %{type: :response, text: text, tool_executions: tool_executions},
+               resume: resume2
+             } = result2
+
       assert text == "Hello back!"
       assert tool_executions == []
 
@@ -64,6 +70,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
       comp =
         ConversationComp.run(state)
+        |> EffectLogger.with_logging()
         |> LlmCall.with_handler(handler)
         |> Yield.with_handler()
         |> Throw.with_handler()
@@ -74,7 +81,9 @@ defmodule TodosMcp.Llm.ConversationCompTest do
       # Step 2: Provide user input, get execute_tools request
       {result2, _env} = resume1.("Show my todos")
 
-      assert %Suspend{value: {:execute_tools, tool_uses}, resume: resume2} = result2
+      assert %Suspend{value: %{type: :execute_tools, tool_uses: tool_uses}, resume: resume2} =
+               result2
+
       assert length(tool_uses) == 1
       assert hd(tool_uses).name == "list_todos"
 
@@ -82,7 +91,11 @@ defmodule TodosMcp.Llm.ConversationCompTest do
       tool_results = [{:ok, [%{id: "1", title: "Test todo"}]}]
       {result3, _env} = resume2.(tool_results)
 
-      assert %Suspend{value: {:response, text, tool_executions}, resume: resume3} = result3
+      assert %Suspend{
+               value: %{type: :response, text: text, tool_executions: tool_executions},
+               resume: resume3
+             } = result3
+
       assert text == "Here are your todos!"
       assert length(tool_executions) == 1
 
@@ -105,6 +118,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
       comp =
         ConversationComp.run(state)
+        |> EffectLogger.with_logging()
         |> LlmCall.with_handler(handler)
         |> Yield.with_handler()
         |> Throw.with_handler()
@@ -112,7 +126,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
       {%Suspend{resume: resume1}, _env} = Comp.run(comp)
       {result2, _env} = resume1.("Create two todos")
 
-      assert %Suspend{value: {:execute_tools, tool_uses}} = result2
+      assert %Suspend{value: %{type: :execute_tools, tool_uses: tool_uses}} = result2
       assert length(tool_uses) == 2
     end
 
@@ -121,6 +135,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
       comp =
         ConversationComp.run(state)
+        |> EffectLogger.with_logging()
         |> LlmCall.with_handler(TestHandler.error_response(:api_error))
         |> Yield.with_handler()
         |> Throw.with_handler()
@@ -129,7 +144,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
       {result2, _env} = resume1.("Hello")
 
       # Should yield an error
-      assert %Suspend{value: {:error, :api_error}, resume: resume2} = result2
+      assert %Suspend{value: %{type: :error, reason: :api_error}, resume: resume2} = result2
 
       # Should return to await_user_input after acknowledging error
       {result3, _env} = resume2.(:ok)
@@ -185,13 +200,16 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
       comp =
         ConversationComp.run(state)
+        |> EffectLogger.with_logging()
         |> LlmCall.with_handler(handler)
         |> Yield.with_handler()
         |> Throw.with_handler()
 
       # Turn 1
       {%Suspend{resume: r1}, _} = Comp.run(comp)
-      {%Suspend{value: {:response, "Response 1", _}, resume: r2}, _} = r1.("First message")
+
+      {%Suspend{value: %{type: :response, text: "Response 1"}, resume: r2}, _} =
+        r1.("First message")
 
       # Check messages sent to LLM
       [{:messages, turn1_msgs}] = :ets.lookup(last_messages, :messages)
@@ -200,7 +218,9 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
       # Turn 2
       {%Suspend{resume: r3}, _} = r2.(:ok)
-      {%Suspend{value: {:response, "Response 2", _}, resume: _r4}, _} = r3.("Second message")
+
+      {%Suspend{value: %{type: :response, text: "Response 2"}, resume: _r4}, _} =
+        r3.("Second message")
 
       # Check messages include history
       [{:messages, turn2_msgs}] = :ets.lookup(last_messages, :messages)
@@ -225,6 +245,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
 
       comp =
         ConversationComp.run(state)
+        |> EffectLogger.with_logging()
         |> LlmCall.with_handler(handler)
         |> Yield.with_handler()
         |> Throw.with_handler()
@@ -238,17 +259,17 @@ defmodule TodosMcp.Llm.ConversationCompTest do
   end
 
   # Helper to iterate through tool execution until we hit the limit or get a response
-  defp iterate_until_limit({%Suspend{value: {:execute_tools, _}, resume: resume}, _}, count)
+  defp iterate_until_limit({%Suspend{value: %{type: :execute_tools}, resume: resume}, _}, count)
        when count < 15 do
     # Provide dummy tool results and continue
     iterate_until_limit(resume.([{:ok, "result"}]), count + 1)
   end
 
-  defp iterate_until_limit({%Suspend{value: {:response, _, _}}, _}, _count) do
+  defp iterate_until_limit({%Suspend{value: %{type: :response}}, _}, _count) do
     {:response, :got_response}
   end
 
-  defp iterate_until_limit({%Suspend{value: {:error, reason}}, _}, _count) do
+  defp iterate_until_limit({%Suspend{value: %{type: :error, reason: reason}}, _}, _count) do
     {:error, reason}
   end
 

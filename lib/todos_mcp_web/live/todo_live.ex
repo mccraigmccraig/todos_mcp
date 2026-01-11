@@ -71,7 +71,10 @@ defmodule TodosMcpWeb.TodoLive do
        runner: runner,
        # Voice recording state
        is_recording: false,
-       is_transcribing: false
+       is_transcribing: false,
+       # Log modal state
+       show_log_modal: false,
+       log_json: nil
      )}
   end
 
@@ -125,6 +128,22 @@ defmodule TodosMcpWeb.TodoLive do
       end
 
     {:noreply, assign(socket, runner: runner, chat_messages: [], chat_error: nil)}
+  end
+
+  def handle_event("show_log", _params, socket) do
+    log_json =
+      if socket.assigns.runner do
+        ConversationRunner.get_log_json(socket.assigns.runner)
+      else
+        "no runner"
+      end
+
+    socket =
+      socket
+      |> assign(log_json: log_json)
+      |> push_event("open-log-modal", %{})
+
+    {:noreply, socket}
   end
 
   # Voice recording events
@@ -524,13 +543,23 @@ defmodule TodosMcpWeb.TodoLive do
         <%!-- Header --%>
         <div class="flex items-center justify-between p-3 border-b border-base-300">
           <h2 class="font-semibold">AI Assistant</h2>
-          <button
-            :if={@chat_messages != []}
-            phx-click="chat_clear"
-            class="text-sm text-gray-500 hover:text-gray-700"
-          >
-            Clear
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              :if={@runner}
+              phx-click="show_log"
+              class="text-sm text-gray-500 hover:text-gray-700"
+              title="View effect log"
+            >
+              <.icon name="hero-code-bracket" class="w-4 h-4" />
+            </button>
+            <button
+              :if={@chat_messages != []}
+              phx-click="chat_clear"
+              class="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Clear
+            </button>
+          </div>
         </div>
 
         <%!-- API Key Status --%>
@@ -655,6 +684,19 @@ defmodule TodosMcpWeb.TodoLive do
           </div>
         </form>
       </div>
+
+      <%!-- Effect Log Modal --%>
+      <.modal id="log-modal">
+        <:title>Effect Log</:title>
+        <p class="text-sm text-gray-600 mb-4">
+          This shows the Skuld EffectLogger log - a serializable record of all effects
+          executed in the conversation. The log is pruned after each loop iteration
+          to stay bounded.
+        </p>
+        <div class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-[60vh] font-mono text-xs">
+          <pre>{@log_json || "null"}</pre>
+        </div>
+      </.modal>
 
       <%!-- API Key Settings Modal --%>
       <.modal id="api-key-modal">
