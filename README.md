@@ -156,6 +156,67 @@ end
 The effect abstraction means we can swap Groq for OpenAI Whisper, local
 transcription, or a test stub—without changing the conversation logic.
 
+### Effect Logging and Cold Resume
+
+The conversation loop uses `EffectLogger` to capture a replayable log of all
+effect operations. This enables **cold resume**—the ability to serialize a
+suspended conversation and resume it later, even in a different process.
+
+```elixir
+# Handler stack in ConversationRunner
+comp =
+  ConversationComp.run()
+  |> State.with_handler(initial_state, tag: ConversationComp)
+  |> EffectLogger.with_logging(state_keys: [State.state_key(ConversationComp)])
+  |> Reader.with_handler(config, tag: ConversationComp)
+  |> LlmCall.with_handler(...)
+  |> Yield.with_handler()
+```
+
+**How it works:**
+
+1. **Log Capture** - Every effect operation (State.get, LlmCall.send_messages,
+   Yield.yield, etc.) is recorded with its arguments and return value.
+
+2. **Loop Pruning** - Long-running conversations would accumulate unbounded logs.
+   The computation marks loop boundaries with `EffectLogger.mark_loop/1`:
+
+   ```elixir
+   defcomp run() do
+     _ <- EffectLogger.mark_loop(ConversationLoop)  # Mark iteration start
+     # ... conversation turn ...
+     run()  # Loop
+   end
+   ```
+
+   When a loop completes, all entries from previous iterations are pruned—only
+   the current iteration's entries are retained. This keeps logs bounded.
+
+3. **State Snapshots** - At each loop mark, the current `env.state` is captured.
+   The `state_keys` option filters which state to include—here we only capture
+   `State` effect data (the message history), not `Reader` config (tools, system
+   prompt) which is constant and would bloat the log.
+
+4. **JSON Serialization** - The log is fully JSON-serializable:
+
+   ```elixir
+   # After a yield, extract and serialize the log
+   log = EffectLogger.get_log(env)
+   json = Jason.encode!(log)
+
+   # Later: deserialize and resume
+   cold_log = EffectLogger.Log.from_json(Jason.decode!(json))
+   comp
+   |> EffectLogger.with_resume(cold_log, resume_value)
+   |> ...
+   ```
+
+   On resume, EffectLogger replays logged operations (returning cached values)
+   until reaching the suspension point, then continues with fresh execution.
+
+The View Log button in the chat UI lets you inspect the current effect log,
+showing the sequence of operations that led to the current conversation state.
+
 ## Property-Based Testing
 
 The biggest win from algebraic effects: **testability**.
