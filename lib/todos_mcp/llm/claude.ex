@@ -96,11 +96,14 @@ defmodule TodosMcp.Llm.Claude do
     model = Keyword.get(opts, :model, @default_model)
     max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
 
+    # Sanitize messages to only include fields Claude expects
+    sanitized_messages = sanitize_messages(messages)
+
     body =
       %{
         model: model,
         max_tokens: max_tokens,
-        messages: messages
+        messages: sanitized_messages
       }
       |> maybe_add_tools(tools)
       |> maybe_add_system(system)
@@ -196,6 +199,17 @@ defmodule TodosMcp.Llm.Claude do
   end
 
   # Private functions
+
+  # Sanitize messages to only include fields Claude expects (role, content)
+  # This strips any extra metadata like :provider that we add for logging
+  defp sanitize_messages(messages) do
+    Enum.map(messages, fn msg ->
+      %{
+        role: msg[:role] || msg["role"],
+        content: msg[:content] || msg["content"]
+      }
+    end)
+  end
 
   defp do_request(body, api_key) do
     Req.post(@api_url,
