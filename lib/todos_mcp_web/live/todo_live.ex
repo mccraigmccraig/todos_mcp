@@ -551,17 +551,19 @@ defmodule TodosMcpWeb.TodoLive do
             <button
               :if={@runner}
               phx-click={JS.push("show_log") |> show_modal("log-modal")}
-              class="text-sm text-gray-500 hover:text-gray-700"
+              class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 transition-colors"
               title="View effect log"
             >
-              <.icon name="hero-code-bracket" class="w-4 h-4" />
+              <.icon name="hero-code-bracket" class="w-3.5 h-3.5" />
+              <span>Log</span>
             </button>
             <button
               :if={@chat_messages != []}
               phx-click="chat_clear"
-              class="text-sm text-gray-500 hover:text-gray-700"
+              class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
             >
-              Clear
+              <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+              <span>Clear</span>
             </button>
           </div>
         </div>
