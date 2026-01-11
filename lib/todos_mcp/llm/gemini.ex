@@ -95,10 +95,15 @@ defmodule TodosMcp.Llm.Gemini do
   @spec convert_tools([map()]) :: [map()]
   def convert_tools(mcp_tools) do
     Enum.map(mcp_tools, fn tool ->
+      # Handle both MCP format (inputSchema) and Claude format (input_schema)
+      schema =
+        tool[:input_schema] || tool[:inputSchema] ||
+          tool["input_schema"] || tool["inputSchema"]
+
       %{
-        name: tool.name,
-        description: tool.description,
-        parameters: convert_schema(tool.inputSchema || tool[:input_schema])
+        name: tool[:name] || tool["name"],
+        description: tool[:description] || tool["description"],
+        parameters: convert_schema(schema)
       }
     end)
   end

@@ -162,10 +162,18 @@ defmodule TodosMcp.Llm.ConversationRunner do
   @spec send_message(t(), String.t()) ::
           {:ok, response(), t()} | {:error, term(), t()}
   def send_message(%__MODULE__{resume_fn: resume} = runner, message) do
-    # Resume with user message
-    {result, env} = resume.(message)
-    log = EffectLogger.get_log(env)
-    process_yields(result, %{runner | log: log})
+    # Resume with user message, catching any exceptions
+    try do
+      {result, env} = resume.(message)
+      log = EffectLogger.get_log(env)
+      process_yields(result, %{runner | log: log})
+    rescue
+      e ->
+        {:error, {:exception, Exception.message(e)}, runner}
+    catch
+      kind, reason ->
+        {:error, {kind, reason}, runner}
+    end
   end
 
   @doc """

@@ -24,6 +24,7 @@ defmodule TodosMcpWeb.Router do
     # Settings routes for session management
     post("/settings/api-key", SettingsController, :save_api_key)
     delete("/settings/api-key", SettingsController, :clear_api_key)
+    post("/settings/provider", SettingsController, :save_provider)
   end
 
   # Other scopes may use custom stacks.

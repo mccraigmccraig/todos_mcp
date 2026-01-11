@@ -122,13 +122,17 @@ defmodule TodosMcp.Llm.ConversationComp do
   #############################################################################
 
   defmodule State do
-    @moduledoc "Mutable conversation state (message history)"
+    @moduledoc "Mutable conversation state (message history, errors)"
     @derive Jason.Encoder
-    defstruct messages: []
+    defstruct messages: [],
+              last_error: nil,
+              error_count: 0
   end
 
   @type state :: %State{
-          messages: [map()]
+          messages: [map()],
+          last_error: term(),
+          error_count: non_neg_integer()
         }
 
   @doc """
@@ -141,7 +145,9 @@ defmodule TodosMcp.Llm.ConversationComp do
   @spec initial_state(keyword()) :: state()
   def initial_state(opts \\ []) do
     %State{
-      messages: Keyword.get(opts, :messages, [])
+      messages: Keyword.get(opts, :messages, []),
+      last_error: nil,
+      error_count: 0
     }
   end
 
@@ -201,9 +207,17 @@ defmodule TodosMcp.Llm.ConversationComp do
 
       {:error, reason} ->
         comp do
+          # Record error in state for debugging
+          _ <-
+            StateEffect.put(__MODULE__, %{
+              state
+              | last_error: format_error_for_state(reason),
+                error_count: state.error_count + 1
+            })
+
           # Yield error and continue (use map for JSON serialization)
           _yielded <- Yield.yield(%{type: :error, reason: reason})
-          # State unchanged on error
+
           run()
         end
     end
@@ -313,5 +327,33 @@ defmodule TodosMcp.Llm.ConversationComp do
         result: result
       }
     end)
+  end
+
+  # Format errors for state storage (must be JSON-serializable)
+  defp format_error_for_state({:api_error, status, body}) do
+    %{type: "api_error", status: status, body: safe_inspect(body)}
+  end
+
+  defp format_error_for_state({:request_failed, reason}) do
+    %{type: "request_failed", reason: safe_inspect(reason)}
+  end
+
+  defp format_error_for_state(:max_tool_iterations) do
+    %{type: "max_tool_iterations"}
+  end
+
+  defp format_error_for_state(reason) do
+    %{type: "unknown", reason: safe_inspect(reason)}
+  end
+
+  defp safe_inspect(term) do
+    try do
+      case Jason.encode(term) do
+        {:ok, _} -> term
+        {:error, _} -> inspect(term)
+      end
+    rescue
+      _ -> inspect(term)
+    end
   end
 end

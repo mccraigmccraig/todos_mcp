@@ -42,7 +42,24 @@ defmodule TodosMcpWeb.SettingsController do
     |> delete_session("api_key")
     |> delete_session("gemini_api_key")
     |> delete_session("groq_api_key")
+    |> delete_session("selected_provider")
     |> put_flash(:info, "API keys cleared")
     |> redirect(to: ~p"/")
+  end
+
+  @doc """
+  Save selected LLM provider to session.
+  Returns JSON response for use with fetch API.
+  """
+  def save_provider(conn, %{"provider" => provider}) when provider in ["claude", "gemini"] do
+    conn
+    |> put_session("selected_provider", provider)
+    |> json(%{ok: true})
+  end
+
+  def save_provider(conn, _params) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid provider"})
   end
 end

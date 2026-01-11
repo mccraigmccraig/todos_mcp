@@ -48,12 +48,24 @@ defmodule TodosMcpWeb.TodoLive do
     env_groq_key = System.get_env("GROQ_API_KEY")
     groq_api_key = session_groq_key || env_groq_key
 
-    # Select default provider based on available keys
+    # Get saved provider from session, with validation
+    saved_provider = session["selected_provider"]
+
     selected_provider =
-      cond do
-        anthropic_api_key -> :claude
-        gemini_api_key -> :gemini
-        true -> :claude
+      case saved_provider do
+        "gemini" when gemini_api_key != nil ->
+          :gemini
+
+        "claude" when anthropic_api_key != nil ->
+          :claude
+
+        # Fallback: prefer Claude if available, else Gemini
+        _ ->
+          cond do
+            anthropic_api_key -> :claude
+            gemini_api_key -> :gemini
+            true -> :claude
+          end
       end
 
     # Get API key for selected provider
@@ -198,13 +210,15 @@ defmodule TodosMcpWeb.TodoLive do
       end
 
     {:noreply,
-     assign(socket,
+     socket
+     |> assign(
        selected_provider: provider,
        api_key: api_key,
        runner: runner,
        chat_messages: [],
        chat_error: nil
-     )}
+     )
+     |> push_event("save_provider", %{provider: Atom.to_string(provider)})}
   end
 
   def handle_event("show_log", _params, socket) do
@@ -624,18 +638,23 @@ defmodule TodosMcpWeb.TodoLive do
         <div class="flex items-center justify-between p-3 border-b border-base-300">
           <div class="flex items-center gap-2">
             <h2 class="font-semibold text-base-content">AI</h2>
-            <select
-              phx-change="change_provider"
-              name="provider"
-              class="select select-xs bg-base-300 border-base-100 text-base-content min-h-0 h-7 pl-2 pr-6"
-            >
-              <option value="claude" selected={@selected_provider == :claude}>
-                Claude {if @anthropic_api_key, do: "", else: "(no key)"}
-              </option>
-              <option value="gemini" selected={@selected_provider == :gemini}>
-                Gemini {if @gemini_api_key, do: "", else: "(no key)"}
-              </option>
-            </select>
+            <form phx-change="change_provider">
+              <select
+                id="provider-select"
+                phx-hook="ProviderSelector"
+                name="provider"
+                data-selected={Atom.to_string(@selected_provider)}
+                class="select select-xs bg-base-300 border-base-100 text-base-content min-h-0 h-7 pl-2 pr-6"
+              >
+                <%= Phoenix.HTML.Form.options_for_select(
+                  [
+                    {"Claude #{if @anthropic_api_key, do: "", else: "(no key)"}", "claude"},
+                    {"Gemini #{if @gemini_api_key, do: "", else: "(no key)"}", "gemini"}
+                  ],
+                  Atom.to_string(@selected_provider)
+                ) %>
+              </select>
+            </form>
           </div>
           <div class="flex items-center gap-2">
             <button

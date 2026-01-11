@@ -53,6 +53,31 @@ const Hooks = {
       }
     }
   },
+  ProviderSelector: {
+    mounted() {
+      this.syncValue()
+      this.handleEvent("save_provider", ({ provider }) => {
+        fetch("/settings/provider", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-csrf-token": csrfToken
+          },
+          body: JSON.stringify({ provider })
+        })
+      })
+    },
+    updated() {
+      this.syncValue()
+    },
+    syncValue() {
+      // Force browser select to match server state
+      const expected = this.el.dataset.selected
+      if (this.el.value !== expected) {
+        this.el.value = expected
+      }
+    }
+  },
   AudioRecorder: {
     mounted() {
       this.mediaRecorder = null
