@@ -110,10 +110,11 @@ defmodule TodosMcp.Llm.ConversationRunner do
     # Build the computation with handlers
     # Reader is outside EffectLogger (config lookups not logged)
     # State is inside EffectLogger (state changes are logged for cold resume)
+    # Only capture State effect data in snapshots (not Reader config)
     comp =
       ConversationComp.run()
       |> State.with_handler(initial_state, tag: ConversationComp)
-      |> EffectLogger.with_logging()
+      |> EffectLogger.with_logging(state_keys: [State.state_key(ConversationComp)])
       |> Reader.with_handler(conversation_config, tag: ConversationComp)
       |> LlmCall.with_handler(llm_handler(config))
       |> Yield.with_handler()
