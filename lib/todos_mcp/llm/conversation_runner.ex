@@ -175,7 +175,6 @@ defmodule TodosMcp.Llm.ConversationRunner do
         {:error, {kind, reason}, runner}
     end
   end
-  end
 
   @doc """
   Get the current effect log.
