@@ -36,7 +36,7 @@ These structs are:
 - **Self-documenting** - `@moduledoc` describes what they do
 - **Typed** - `@type` specs define their schema
 
-A single `DomainHandler` dispatches on struct type:
+A single `Todos.Handlers` module dispatches on struct type:
 
 ```elixir
 defcomp handle(%CreateTodo{} = cmd) do
@@ -49,7 +49,7 @@ end
 
 defcomp handle(%ListTodos{filter: filter, sort_by: sort_by, sort_order: sort_order}) do
   ctx <- Reader.ask(CommandContext)
-  todos <- DataAccess.list_todos(ctx.tenant_id, %{filter: filter, ...})
+  todos <- Repository.list_todos(ctx.tenant_id, %{filter: filter, ...})
   {:ok, todos}
 end
 ```
@@ -74,7 +74,7 @@ end
 ```
 
 The LLM calls tools by name, we deserialize to a struct, execute through the
-same `DomainHandler`, and return the result. **Zero special-casing for AI**—the
+same `Todos.Handlers`, and return the result. **Zero special-casing for AI**—the
 LLM uses exactly the same code paths as the UI.
 
 ## Skuld Effects
@@ -88,12 +88,12 @@ what it needs without *performing* the operations directly.
 **1. Pure Layer** - Command/Query structs and their validation. No effects,
 trivially testable.
 
-**2. Effectful Layer** - `DomainHandler` uses effects to describe operations:
+**2. Effectful Layer** - `Todos.Handlers` uses effects to describe operations:
 
 ```elixir
 defcomp handle(%ToggleTodo{id: id}) do
   ctx <- Reader.ask(CommandContext)        # "I need the command context"
-  todo <- DataAccess.get_todo!(ctx.tenant_id, id)  # "I need this todo"
+  todo <- Repository.get_todo!(ctx.tenant_id, id)  # "I need this todo"
   changeset = Todo.changeset(todo, %{completed: not todo.completed})
   updated <- EctoPersist.update(changeset)  # "Persist this change"
   {:ok, updated}
@@ -108,14 +108,22 @@ plumbing code:
 
 ```elixir
 # Run.execute/2 composes the handler stack
-comp
-|> Command.with_handler(&DomainHandler.handle/1)
+comp do
+  result <- Command.execute(operation)
+  result
+end
+|> Command.with_handler(&Handlers.handle/1)
 |> Reader.with_handler(context, tag: CommandContext)
-|> Query.with_handler(%{DataAccess.Impl => :direct})  # or InMemoryImpl
-|> EctoPersist.with_handler(Repo)
+|> with_storage_handlers(mode)  # Query + Persist handlers
 |> Fresh.with_uuid7_handler()
 |> Throw.with_handler()
 |> Comp.run()
+
+# Storage handlers vary by mode:
+# :database -> Query.with_handler(%{Repository.Ecto => :direct})
+#           -> EctoPersist.with_handler(Repo)
+# :in_memory -> Query.with_handler(%{Repository.Ecto => {Repository.InMemory, :delegate}})
+#            -> InMemoryPersist.with_handler()
 ```
 
 ### How This Helps with LLM Integration
@@ -180,14 +188,15 @@ The conversation loop uses `EffectLogger` to capture a log of effect operations,
 useful for **debugging and inspection**:
 
 ```elixir
-# Handler stack in ConversationRunner
+# Handler stack in ConversationRunner.start/1
 comp =
   ConversationComp.run()
   |> State.with_handler(initial_state, tag: ConversationComp)
   |> EffectLogger.with_logging(state_keys: [State.state_key(ConversationComp)])
-  |> Reader.with_handler(config, tag: ConversationComp)
-  |> LlmCall.with_handler(...)
+  |> Reader.with_handler(conversation_config, tag: ConversationComp)
+  |> LlmCall.with_handler(llm_handler(config))  # Claude, Gemini, or Groq
   |> Yield.with_handler()
+  |> Throw.with_handler()
 ```
 
 **How it works:**
@@ -229,7 +238,7 @@ Unlike mocks (which compose poorly—try setting up three interacting mocks
 correctly), effect handlers compose naturally. Swap one handler stack for
 another and all the interactions just work.
 
-Since `DomainHandler` only *describes* operations via effects, we can run it
+Since `Todos.Handlers` only *describes* operations via effects, we can run it
 with pure in-memory handlers instead of a real database:
 
 ```elixir
@@ -277,35 +286,52 @@ Visit http://localhost:4000 and try chatting with the assistant!
 
 ## Configuration
 
+**Storage mode** is the only setting that requires application config:
+
 ```elixir
-# config/config.exs
-
-# Storage mode (:database or :in_memory)
-config :todos_mcp, :storage_mode, :in_memory
-
-# Claude API key for the chat assistant
-config :todos_mcp, :anthropic_api_key, System.get_env("ANTHROPIC_API_KEY")
+# config/config.exs (or STORAGE_MODE env var)
+config :todos_mcp, :storage_mode, :in_memory  # or :database
 ```
+
+**API keys** can be configured through the UI (gear icon in chat sidebar) or
+environment variables. UI-configured keys are stored in the browser session:
+
+| Provider | Env Variable | Notes |
+|----------|--------------|-------|
+| Claude (Anthropic) | `ANTHROPIC_API_KEY` | Best tool use |
+| Gemini (Google) | `GEMINI_API_KEY` | Free tier available |
+| Groq | `GROQ_API_KEY` | Fast, also used for voice transcription |
+
+The UI lets you switch between providers on the fly. Voice input requires a
+Groq API key (uses Whisper for transcription).
 
 ## Project Structure
 
 ```
 lib/todos_mcp/
-├── commands.ex          # Command structs (CreateTodo, ToggleTodo, etc.)
-├── queries.ex           # Query structs (ListTodos, GetStats, etc.)
-├── domain_handler.ex    # Effectful domain logic
-├── run.ex               # Handler composition
-├── data_access.ex       # Query effect for data access
-├── data_access/
-│   └── in_memory_impl.ex  # Pure in-memory implementation
+├── run.ex                    # Handler composition, entry point
+├── todos/
+│   ├── commands.ex           # Command structs (CreateTodo, ToggleTodo, etc.)
+│   ├── queries.ex            # Query structs (ListTodos, GetStats, etc.)
+│   ├── handlers.ex           # Effectful domain logic
+│   ├── todo.ex               # Todo schema
+│   ├── repository.ex         # Repository effect for data access
+│   └── repository/
+│       ├── ecto.ex           # Postgres implementation
+│       └── in_memory.ex      # Pure in-memory implementation
 ├── effects/
-│   ├── llm_call.ex      # Effect for LLM API calls
-│   └── transcribe.ex    # Effect for audio transcription
+│   ├── llm_call.ex           # Effect for LLM API calls
+│   ├── llm_call/
+│   │   ├── claude_handler.ex
+│   │   ├── gemini_handler.ex
+│   │   └── groq_handler.ex
+│   ├── transcribe.ex         # Effect for audio transcription
+│   └── in_memory_persist.ex  # In-memory persistence handler
 ├── llm/
-│   ├── conversation_comp.ex   # Conversation loop as effectful computation
+│   ├── conversation_comp.ex  # Conversation loop as effectful computation
 │   └── conversation_runner.ex # LiveView integration
 └── mcp/
-    └── tools.ex         # Auto-generate tools from command/query structs
+    └── tools.ex              # Auto-generate tools from command/query structs
 ```
 
 ## License
