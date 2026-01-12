@@ -11,6 +11,11 @@ defmodule TodosMcp.DomainHandlerPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  # Skip these tests in database mode - they require InMemoryStore
+  if Application.compile_env(:todos_mcp, :storage_mode, :in_memory) == :database do
+    @moduletag :skip
+  end
+
   alias TodosMcp.{Run, InMemoryStore}
   alias TodosMcp.Generators
 
