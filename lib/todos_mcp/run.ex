@@ -3,7 +3,7 @@ defmodule TodosMcp.Run do
   Runs domain operations through the Skuld effect handler stack.
 
   Sets up the layered handler chain:
-  - Command effect → Todos.Handler (business logic)
+  - Command effect → Todos.Handlers (business logic)
   - Reader effect → CommandContext (tenant isolation)
   - Query effect → Todos.Repository.Ecto (data access)
   - EctoPersist effect → Repo (persistence)
@@ -46,7 +46,7 @@ defmodule TodosMcp.Run do
   alias Skuld.Comp
   alias Skuld.Effects.{Command, Query, EctoPersist, Fresh, Throw, Reader}
   alias TodosMcp.{Repo, CommandContext}
-  alias TodosMcp.Todos.{Handler, Repository}
+  alias TodosMcp.Todos.{Handlers, Repository}
   alias TodosMcp.Effects.InMemoryPersist
 
   @doc """
@@ -69,7 +69,7 @@ defmodule TodosMcp.Run do
       result <- Command.execute(operation)
       result
     end
-    |> Command.with_handler(&Handler.handle/1)
+    |> Command.with_handler(&Handlers.handle/1)
     |> Reader.with_handler(context, tag: CommandContext)
     |> with_storage_handlers(mode)
     |> Fresh.with_uuid7_handler()

@@ -1,6 +1,6 @@
-defmodule TodosMcp.Todos.HandlerPropertyTest do
+defmodule TodosMcp.Todos.HandlersPropertyTest do
   @moduledoc """
-  Property-based tests for Todos.Handler using stream_data.
+  Property-based tests for Todos.Handlers using stream_data.
 
   These tests run with pure in-memory handlers (no database), enabling
   thousands of iterations in seconds. This demonstrates the power of

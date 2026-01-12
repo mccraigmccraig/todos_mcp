@@ -1,6 +1,6 @@
 defmodule TodosMcp.Generators do
   @moduledoc """
-  StreamData generators for property-based testing of Todos.Handler.
+  StreamData generators for property-based testing of Todos.Handlers.
 
   Provides generators for:
   - Primitive types (priority, filter, sort options)

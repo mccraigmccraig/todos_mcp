@@ -1,6 +1,6 @@
-defmodule TodosMcp.Todos.Handler do
+defmodule TodosMcp.Todos.Handlers do
   @moduledoc """
-  Domain handler for todo commands and queries.
+  Domain handlers for todo commands and queries.
 
   Handles all domain operations using Skuld effects:
   - Repository (via Query effect) for reads
@@ -14,7 +14,7 @@ defmodule TodosMcp.Todos.Handler do
         result <- Command.execute(%CreateTodo{title: "Buy milk"})
         result
       end
-      |> Command.with_handler(&Todos.Handler.handle/1)
+      |> Command.with_handler(&Todos.Handlers.handle/1)
       |> Reader.with_handler(%CommandContext{tenant_id: "tenant-123"}, tag: CommandContext)
       |> Query.with_handler(%{Todos.Repository.Ecto => :direct})
       |> EctoPersist.with_handler(Repo)

@@ -1,6 +1,6 @@
-defmodule TodosMcp.Todos.HandlerStubTest do
+defmodule TodosMcp.Todos.HandlersStubTest do
   @moduledoc """
-  Tests Todos.Handler with stubbed effects (no database).
+  Tests Todos.Handlers with stubbed effects (no database).
   """
   use ExUnit.Case, async: true
 
@@ -9,7 +9,7 @@ defmodule TodosMcp.Todos.HandlerStubTest do
   alias Skuld.Effects.{Command, Query, Fresh, Throw, Reader}
   alias Skuld.Effects.EctoPersist
   alias TodosMcp.CommandContext
-  alias TodosMcp.Todos.{Handler, Repository, Todo}
+  alias TodosMcp.Todos.{Handlers, Repository, Todo}
 
   # Fixed UUIDs for testing
   @uuid1 "550e8400-e29b-41d4-a716-446655440001"
@@ -43,7 +43,7 @@ defmodule TodosMcp.Todos.HandlerStubTest do
     tenant_id = Keyword.get(opts, :tenant_id, @test_tenant)
 
     Command.execute(operation)
-    |> Command.with_handler(&Handler.handle/1)
+    |> Command.with_handler(&Handlers.handle/1)
     |> Reader.with_handler(%CommandContext{tenant_id: tenant_id}, tag: CommandContext)
     |> then(fn c ->
       if map_size(queries) > 0, do: Query.with_test_handler(c, queries), else: c
