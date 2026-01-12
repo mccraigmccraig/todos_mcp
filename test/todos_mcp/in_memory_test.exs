@@ -7,8 +7,8 @@ defmodule TodosMcp.InMemoryTest do
   end
 
   alias TodosMcp.{InMemoryStore, Run}
-  alias TodosMcp.Commands.{CreateTodo, ToggleTodo, DeleteTodo, CompleteAll, ClearCompleted}
-  alias TodosMcp.Queries.{ListTodos, GetTodo, GetStats}
+  alias TodosMcp.Todos.Commands.{CreateTodo, ToggleTodo, DeleteTodo, CompleteAll, ClearCompleted}
+  alias TodosMcp.Todos.Queries.{ListTodos, GetTodo, GetStats}
 
   setup do
     # Clear the store before each test (it's started by the application)

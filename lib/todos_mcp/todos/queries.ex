@@ -1,4 +1,4 @@
-defmodule TodosMcp.Queries do
+defmodule TodosMcp.Todos.Queries do
   @moduledoc """
   Query structs for reading todos.
 

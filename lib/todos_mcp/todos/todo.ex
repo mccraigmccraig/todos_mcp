@@ -1,4 +1,4 @@
-defmodule TodosMcp.Todo do
+defmodule TodosMcp.Todos.Todo do
   @moduledoc """
   The Todo schema representing a todo item.
   """

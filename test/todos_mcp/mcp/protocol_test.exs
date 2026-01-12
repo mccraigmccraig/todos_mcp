@@ -4,8 +4,8 @@ defmodule TodosMcp.Mcp.ProtocolTest do
 
   alias TodosMcp.Mcp.Protocol
   alias TodosMcp.{InMemoryStore, Run}
-  alias TodosMcp.Commands.{CreateTodo, ToggleTodo}
-  alias TodosMcp.Queries.{GetTodo, ListTodos}
+  alias TodosMcp.Todos.Commands.{CreateTodo, ToggleTodo}
+  alias TodosMcp.Todos.Queries.{GetTodo, ListTodos}
 
   setup do
     # Clear in-memory store before each test (when in in_memory mode)

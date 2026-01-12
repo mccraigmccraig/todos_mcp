@@ -1,6 +1,6 @@
-defmodule TodosMcp.DomainHandlerPropertyTest do
+defmodule TodosMcp.Todos.HandlerPropertyTest do
   @moduledoc """
-  Property-based tests for DomainHandler using stream_data.
+  Property-based tests for Todos.Handler using stream_data.
 
   These tests run with pure in-memory handlers (no database), enabling
   thousands of iterations in seconds. This demonstrates the power of
@@ -19,14 +19,14 @@ defmodule TodosMcp.DomainHandlerPropertyTest do
   alias TodosMcp.{Run, InMemoryStore}
   alias TodosMcp.Generators
 
-  alias TodosMcp.Commands.{
+  alias TodosMcp.Todos.Commands.{
     UpdateTodo,
     ToggleTodo,
     CompleteAll,
     ClearCompleted
   }
 
-  alias TodosMcp.Queries.{ListTodos, GetStats}
+  alias TodosMcp.Todos.Queries.{ListTodos, GetStats}
 
   @test_tenant "property-test-tenant"
 

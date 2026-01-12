@@ -28,7 +28,7 @@ defmodule TodosMcp.Mcp.Tools do
       ]
   """
 
-  alias TodosMcp.{Commands, Queries}
+  alias TodosMcp.Todos.{Commands, Queries}
 
   @doc """
   Returns all available MCP tools (commands + queries).

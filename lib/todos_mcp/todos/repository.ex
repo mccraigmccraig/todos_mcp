@@ -1,6 +1,6 @@
-defmodule TodosMcp.DataAccess do
+defmodule TodosMcp.Todos.Repository do
   @moduledoc """
-  Data access layer for todos.
+  Repository layer for todos.
 
   Public functions return `Skuld.Effects.Query` computations, keeping the
   Query effect abstraction while providing a clean API.
@@ -8,8 +8,8 @@ defmodule TodosMcp.DataAccess do
   ## Storage Modes
 
   The implementation module is selected based on the configured storage mode:
-  - `:database` → `DataAccess.Ecto` (Ecto/Postgres)
-  - `:in_memory` → `DataAccess.InMemoryImpl` (Agent-based)
+  - `:database` → `Repository.Ecto` (Ecto/Postgres)
+  - `:in_memory` → `Repository.InMemory` (Agent-based)
 
   ## API Variants
 
@@ -21,13 +21,13 @@ defmodule TodosMcp.DataAccess do
 
       comp do
         # Throws if not found
-        todo <- DataAccess.get_todo!(id)
+        todo <- Repository.get_todo!(id)
         # ... work with todo
       end
 
       comp do
         # Returns result tuple
-        result <- DataAccess.get_todo(id)
+        result <- Repository.get_todo(id)
         case result do
           {:ok, todo} -> ...
           {:error, _} -> ...
@@ -38,7 +38,7 @@ defmodule TodosMcp.DataAccess do
   alias Skuld.Effects.Query
 
   # All requests go to Ecto - the Query handler maps to the actual implementation
-  # based on storage mode (database -> Ecto direct, in_memory -> InMemoryImpl)
+  # based on storage mode (database -> Ecto direct, in_memory -> InMemory)
 
   # Get a single todo by ID (returns {:ok, todo} or {:error, :not_found})
   def get_todo(tenant_id, id),

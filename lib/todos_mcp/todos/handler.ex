@@ -1,9 +1,9 @@
-defmodule TodosMcp.DomainHandler do
+defmodule TodosMcp.Todos.Handler do
   @moduledoc """
   Domain handler for todo commands and queries.
 
   Handles all domain operations using Skuld effects:
-  - DataAccess (via Query effect) for reads
+  - Repository (via Query effect) for reads
   - EctoPersist for writes
   - Reader (CommandContext) for tenant isolation
   - EventAccumulator for domain events (future)
@@ -14,9 +14,9 @@ defmodule TodosMcp.DomainHandler do
         result <- Command.execute(%CreateTodo{title: "Buy milk"})
         result
       end
-      |> Command.with_handler(&DomainHandler.handle/1)
+      |> Command.with_handler(&Todos.Handler.handle/1)
       |> Reader.with_handler(%CommandContext{tenant_id: "tenant-123"}, tag: CommandContext)
-      |> Query.with_handler(%{DataAccess.Ecto => :direct})
+      |> Query.with_handler(%{Todos.Repository.Ecto => :direct})
       |> EctoPersist.with_handler(Repo)
       |> Throw.with_handler()
       |> Comp.run!()
@@ -24,10 +24,11 @@ defmodule TodosMcp.DomainHandler do
 
   use Skuld.Syntax
 
-  alias TodosMcp.{Todo, DataAccess, CommandContext}
+  alias TodosMcp.CommandContext
+  alias TodosMcp.Todos.{Todo, Repository}
   alias Skuld.Effects.{EctoPersist, Fresh, Reader}
 
-  alias TodosMcp.Commands.{
+  alias TodosMcp.Todos.Commands.{
     CreateTodo,
     UpdateTodo,
     ToggleTodo,
@@ -36,7 +37,7 @@ defmodule TodosMcp.DomainHandler do
     ClearCompleted
   }
 
-  alias TodosMcp.Queries.{
+  alias TodosMcp.Todos.Queries.{
     ListTodos,
     GetTodo,
     SearchTodos,
@@ -68,7 +69,7 @@ defmodule TodosMcp.DomainHandler do
 
   defcomp handle(%UpdateTodo{id: id} = cmd) do
     ctx <- Reader.ask(CommandContext)
-    todo <- DataAccess.get_todo!(ctx.tenant_id, id)
+    todo <- Repository.get_todo!(ctx.tenant_id, id)
 
     attrs =
       %{
@@ -88,7 +89,7 @@ defmodule TodosMcp.DomainHandler do
 
   defcomp handle(%ToggleTodo{id: id}) do
     ctx <- Reader.ask(CommandContext)
-    todo <- DataAccess.get_todo!(ctx.tenant_id, id)
+    todo <- Repository.get_todo!(ctx.tenant_id, id)
     changeset = Todo.changeset(todo, %{completed: not todo.completed})
     updated <- EctoPersist.update(changeset)
     {:ok, updated}
@@ -96,14 +97,14 @@ defmodule TodosMcp.DomainHandler do
 
   defcomp handle(%DeleteTodo{id: id}) do
     ctx <- Reader.ask(CommandContext)
-    todo <- DataAccess.get_todo!(ctx.tenant_id, id)
+    todo <- Repository.get_todo!(ctx.tenant_id, id)
     result <- EctoPersist.delete(todo)
     result
   end
 
   defcomp handle(%CompleteAll{}) do
     ctx <- Reader.ask(CommandContext)
-    todos <- DataAccess.list_incomplete(ctx.tenant_id)
+    todos <- Repository.list_incomplete(ctx.tenant_id)
     changesets = Enum.map(todos, &Todo.changeset(&1, %{completed: true}))
     {count, _} <- EctoPersist.update_all(Todo, changesets)
     {:ok, %{updated: count}}
@@ -111,7 +112,7 @@ defmodule TodosMcp.DomainHandler do
 
   defcomp handle(%ClearCompleted{}) do
     ctx <- Reader.ask(CommandContext)
-    todos <- DataAccess.list_completed(ctx.tenant_id)
+    todos <- Repository.list_completed(ctx.tenant_id)
     {count, _} <- EctoPersist.delete_all(Todo, todos)
     {:ok, %{deleted: count}}
   end
@@ -124,7 +125,7 @@ defmodule TodosMcp.DomainHandler do
     ctx <- Reader.ask(CommandContext)
 
     todos <-
-      DataAccess.list_todos(ctx.tenant_id, %{
+      Repository.list_todos(ctx.tenant_id, %{
         filter: filter,
         sort_by: sort_by,
         sort_order: sort_order
@@ -135,7 +136,7 @@ defmodule TodosMcp.DomainHandler do
 
   defcomp handle(%GetTodo{id: id}) do
     ctx <- Reader.ask(CommandContext)
-    result <- DataAccess.get_todo(ctx.tenant_id, id)
+    result <- Repository.get_todo(ctx.tenant_id, id)
 
     case result do
       {:ok, todo} -> {:ok, todo}
@@ -145,13 +146,13 @@ defmodule TodosMcp.DomainHandler do
 
   defcomp handle(%SearchTodos{query: query, limit: limit}) do
     ctx <- Reader.ask(CommandContext)
-    todos <- DataAccess.search_todos(ctx.tenant_id, query, limit)
+    todos <- Repository.search_todos(ctx.tenant_id, query, limit)
     {:ok, todos}
   end
 
   defcomp handle(%GetStats{}) do
     ctx <- Reader.ask(CommandContext)
-    stats <- DataAccess.get_stats(ctx.tenant_id)
+    stats <- Repository.get_stats(ctx.tenant_id)
     {:ok, stats}
   end
 end

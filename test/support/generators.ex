@@ -1,6 +1,6 @@
 defmodule TodosMcp.Generators do
   @moduledoc """
-  StreamData generators for property-based testing of DomainHandler.
+  StreamData generators for property-based testing of Todos.Handler.
 
   Provides generators for:
   - Primitive types (priority, filter, sort options)
@@ -11,9 +11,9 @@ defmodule TodosMcp.Generators do
 
   use ExUnitProperties
 
-  alias TodosMcp.Todo
+  alias TodosMcp.Todos.Todo
 
-  alias TodosMcp.Commands.{
+  alias TodosMcp.Todos.Commands.{
     CreateTodo,
     UpdateTodo,
     ToggleTodo,
@@ -22,7 +22,7 @@ defmodule TodosMcp.Generators do
     ClearCompleted
   }
 
-  alias TodosMcp.Queries.{
+  alias TodosMcp.Todos.Queries.{
     ListTodos,
     GetTodo,
     SearchTodos,

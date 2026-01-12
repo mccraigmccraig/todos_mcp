@@ -3,9 +3,9 @@ defmodule TodosMcp.Run do
   Runs domain operations through the Skuld effect handler stack.
 
   Sets up the layered handler chain:
-  - Command effect → DomainHandler (business logic)
+  - Command effect → Todos.Handler (business logic)
   - Reader effect → CommandContext (tenant isolation)
-  - Query effect → DataAccess.Ecto (data access)
+  - Query effect → Todos.Repository.Ecto (data access)
   - EctoPersist effect → Repo (persistence)
   - Throw effect → error handling
 
@@ -33,7 +33,7 @@ defmodule TodosMcp.Run do
   ## Example
 
       alias TodosMcp.Run
-      alias TodosMcp.Commands.CreateTodo
+      alias TodosMcp.Todos.Commands.CreateTodo
 
       case Run.execute(%CreateTodo{title: "Buy milk"}, tenant_id: "my-tenant") do
         {:ok, todo} -> # success
@@ -45,7 +45,8 @@ defmodule TodosMcp.Run do
 
   alias Skuld.Comp
   alias Skuld.Effects.{Command, Query, EctoPersist, Fresh, Throw, Reader}
-  alias TodosMcp.{Repo, DomainHandler, DataAccess, CommandContext}
+  alias TodosMcp.{Repo, CommandContext}
+  alias TodosMcp.Todos.{Handler, Repository}
   alias TodosMcp.Effects.InMemoryPersist
 
   @doc """
@@ -68,7 +69,7 @@ defmodule TodosMcp.Run do
       result <- Command.execute(operation)
       result
     end
-    |> Command.with_handler(&DomainHandler.handle/1)
+    |> Command.with_handler(&Handler.handle/1)
     |> Reader.with_handler(context, tag: CommandContext)
     |> with_storage_handlers(mode)
     |> Fresh.with_uuid7_handler()
@@ -98,14 +99,14 @@ defmodule TodosMcp.Run do
   # Install storage handlers based on mode
   defp with_storage_handlers(comp, :database) do
     comp
-    |> Query.with_handler(%{DataAccess.Ecto => :direct})
+    |> Query.with_handler(%{Repository.Ecto => :direct})
     |> EctoPersist.with_handler(Repo)
   end
 
   defp with_storage_handlers(comp, :in_memory) do
-    # Redirect DataAccess.Ecto requests to InMemoryImpl
+    # Redirect Repository.Ecto requests to InMemory
     comp
-    |> Query.with_handler(%{DataAccess.Ecto => {DataAccess.InMemoryImpl, :delegate}})
+    |> Query.with_handler(%{Repository.Ecto => {Repository.InMemory, :delegate}})
     |> InMemoryPersist.with_handler()
   end
 

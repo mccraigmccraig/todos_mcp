@@ -3,7 +3,7 @@ defmodule TodosMcp.Mcp.ToolsTest do
 
   alias TodosMcp.Mcp.Tools
 
-  alias TodosMcp.Commands.{
+  alias TodosMcp.Todos.Commands.{
     CreateTodo,
     UpdateTodo,
     ToggleTodo,
@@ -12,7 +12,7 @@ defmodule TodosMcp.Mcp.ToolsTest do
     ClearCompleted
   }
 
-  alias TodosMcp.Queries.{ListTodos, GetTodo, SearchTodos, GetStats}
+  alias TodosMcp.Todos.Queries.{ListTodos, GetTodo, SearchTodos, GetStats}
 
   describe "all/0" do
     test "returns all command and query tools" do

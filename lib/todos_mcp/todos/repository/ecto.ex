@@ -1,13 +1,14 @@
-defmodule TodosMcp.DataAccess.Ecto do
+defmodule TodosMcp.Todos.Repository.Ecto do
   @moduledoc """
-  Ecto/Postgres implementation of data access operations.
+  Ecto/Postgres implementation of repository operations.
 
   All functions return `{:ok, value}` | `{:error, reason}` result tuples.
   Used by the Query effect handler in production mode.
   """
 
   import Ecto.Query
-  alias TodosMcp.{Repo, Todo}
+  alias TodosMcp.Repo
+  alias TodosMcp.Todos.Todo
 
   # Tenant-scoped base query - ensures all queries are filtered by tenant
   defp scoped(tenant_id), do: from(t in Todo, where: t.tenant_id == ^tenant_id)

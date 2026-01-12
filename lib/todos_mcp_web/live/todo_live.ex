@@ -9,8 +9,8 @@ defmodule TodosMcpWeb.TodoLive do
 
   alias TodosMcp.Run
   alias TodosMcp.Llm.ConversationRunner
-  alias TodosMcp.Commands.{CreateTodo, ToggleTodo, DeleteTodo, ClearCompleted, CompleteAll}
-  alias TodosMcp.Queries.{ListTodos, GetStats}
+  alias TodosMcp.Todos.Commands.{CreateTodo, ToggleTodo, DeleteTodo, ClearCompleted, CompleteAll}
+  alias TodosMcp.Todos.Queries.{ListTodos, GetStats}
   alias TodosMcp.Effects.Transcribe
   alias TodosMcp.Effects.Transcribe.GroqHandler
 

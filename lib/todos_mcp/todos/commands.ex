@@ -1,4 +1,4 @@
-defmodule TodosMcp.Commands do
+defmodule TodosMcp.Todos.Commands do
   @moduledoc """
   Command structs for todo mutations.
 

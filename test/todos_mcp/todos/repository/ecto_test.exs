@@ -1,6 +1,6 @@
-defmodule TodosMcp.DataAccess.EctoTest do
+defmodule TodosMcp.Todos.Repository.EctoTest do
   @moduledoc """
-  Tests for DataAccess.Ecto with real database (Ecto sandbox).
+  Tests for Todos.Repository.Ecto with real database (Ecto sandbox).
   Only runs when storage_mode is :database.
   """
   use TodosMcp.DataCase, async: true
@@ -10,7 +10,8 @@ defmodule TodosMcp.DataAccess.EctoTest do
     @moduletag :skip
   end
 
-  alias TodosMcp.{Repo, Todo, DataAccess}
+  alias TodosMcp.Repo
+  alias TodosMcp.Todos.{Todo, Repository}
 
   @test_tenant "test-tenant"
 
@@ -29,7 +30,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
     test "returns {:ok, todo} when found" do
       todo = create_todo!(%{title: "Test Todo"})
 
-      {:ok, result} = DataAccess.Ecto.get_todo(%{tenant_id: @test_tenant, id: todo.id})
+      {:ok, result} = Repository.Ecto.get_todo(%{tenant_id: @test_tenant, id: todo.id})
 
       assert result.id == todo.id
       assert result.title == "Test Todo"
@@ -38,17 +39,17 @@ defmodule TodosMcp.DataAccess.EctoTest do
     test "returns {:error, :not_found} when not found" do
       non_existent_id = Uniq.UUID.uuid7()
 
-      result = DataAccess.Ecto.get_todo(%{tenant_id: @test_tenant, id: non_existent_id})
+      result = Repository.Ecto.get_todo(%{tenant_id: @test_tenant, id: non_existent_id})
 
-      assert {:error, {:not_found, TodosMcp.Todo, ^non_existent_id}} = result
+      assert {:error, {:not_found, TodosMcp.Todos.Todo, ^non_existent_id}} = result
     end
 
     test "does not return todos from other tenants" do
       todo = create_todo!(%{title: "Test Todo"})
 
-      result = DataAccess.Ecto.get_todo(%{tenant_id: "other-tenant", id: todo.id})
+      result = Repository.Ecto.get_todo(%{tenant_id: "other-tenant", id: todo.id})
 
-      assert {:error, {:not_found, TodosMcp.Todo, _}} = result
+      assert {:error, {:not_found, TodosMcp.Todos.Todo, _}} = result
     end
   end
 
@@ -57,7 +58,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       todo1 = create_todo!(%{title: "First"})
       todo2 = create_todo!(%{title: "Second"})
 
-      {:ok, result} = DataAccess.Ecto.list_todos(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.list_todos(%{tenant_id: @test_tenant})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -69,7 +70,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       _completed = create_todo!(%{title: "Done", completed: true})
       active = create_todo!(%{title: "Active", completed: false})
 
-      {:ok, result} = DataAccess.Ecto.list_todos(%{tenant_id: @test_tenant, filter: :active})
+      {:ok, result} = Repository.Ecto.list_todos(%{tenant_id: @test_tenant, filter: :active})
 
       assert length(result) == 1
       assert hd(result).id == active.id
@@ -79,7 +80,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       completed = create_todo!(%{title: "Done", completed: true})
       _active = create_todo!(%{title: "Active", completed: false})
 
-      {:ok, result} = DataAccess.Ecto.list_todos(%{tenant_id: @test_tenant, filter: :completed})
+      {:ok, result} = Repository.Ecto.list_todos(%{tenant_id: @test_tenant, filter: :completed})
 
       assert length(result) == 1
       assert hd(result).id == completed.id
@@ -90,7 +91,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Apple"})
 
       {:ok, result} =
-        DataAccess.Ecto.list_todos(%{tenant_id: @test_tenant, sort_by: :title, sort_order: :asc})
+        Repository.Ecto.list_todos(%{tenant_id: @test_tenant, sort_by: :title, sort_order: :asc})
 
       titles = Enum.map(result, & &1.title)
       assert titles == ["Apple", "Zebra"]
@@ -101,7 +102,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Zebra"})
 
       {:ok, result} =
-        DataAccess.Ecto.list_todos(%{tenant_id: @test_tenant, sort_by: :title, sort_order: :desc})
+        Repository.Ecto.list_todos(%{tenant_id: @test_tenant, sort_by: :title, sort_order: :desc})
 
       titles = Enum.map(result, & &1.title)
       assert titles == ["Zebra", "Apple"]
@@ -113,7 +114,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Medium", priority: :medium})
 
       {:ok, result} =
-        DataAccess.Ecto.list_todos(%{
+        Repository.Ecto.list_todos(%{
           tenant_id: @test_tenant,
           sort_by: :priority,
           sort_order: :asc
@@ -124,7 +125,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
     end
 
     test "returns empty list when no todos" do
-      {:ok, result} = DataAccess.Ecto.list_todos(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.list_todos(%{tenant_id: @test_tenant})
 
       assert result == []
     end
@@ -132,7 +133,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
     test "only returns todos for the specified tenant" do
       create_todo!(%{title: "My Todo"})
 
-      {:ok, result} = DataAccess.Ecto.list_todos(%{tenant_id: "other-tenant"})
+      {:ok, result} = Repository.Ecto.list_todos(%{tenant_id: "other-tenant"})
 
       assert result == []
     end
@@ -144,7 +145,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       incomplete2 = create_todo!(%{title: "Todo 2", completed: false})
       _completed = create_todo!(%{title: "Done", completed: true})
 
-      {:ok, result} = DataAccess.Ecto.list_incomplete(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.list_incomplete(%{tenant_id: @test_tenant})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -156,7 +157,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Done 1", completed: true})
       create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = DataAccess.Ecto.list_incomplete(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.list_incomplete(%{tenant_id: @test_tenant})
 
       assert result == []
     end
@@ -168,7 +169,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       completed1 = create_todo!(%{title: "Done 1", completed: true})
       completed2 = create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = DataAccess.Ecto.list_completed(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.list_completed(%{tenant_id: @test_tenant})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -180,7 +181,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Todo 1", completed: false})
       create_todo!(%{title: "Todo 2", completed: false})
 
-      {:ok, result} = DataAccess.Ecto.list_completed(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.list_completed(%{tenant_id: @test_tenant})
 
       assert result == []
     end
@@ -193,7 +194,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       _no_match = create_todo!(%{title: "Walk dog"})
 
       {:ok, result} =
-        DataAccess.Ecto.search_todos(%{tenant_id: @test_tenant, query: "Buy", limit: 10})
+        Repository.Ecto.search_todos(%{tenant_id: @test_tenant, query: "Buy", limit: 10})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -206,7 +207,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       _no_match = create_todo!(%{title: "Other", description: "Walk the dog"})
 
       {:ok, result} =
-        DataAccess.Ecto.search_todos(%{tenant_id: @test_tenant, query: "milk", limit: 10})
+        Repository.Ecto.search_todos(%{tenant_id: @test_tenant, query: "milk", limit: 10})
 
       assert length(result) == 1
       assert hd(result).id == match.id
@@ -216,7 +217,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       match = create_todo!(%{title: "BUY MILK"})
 
       {:ok, result} =
-        DataAccess.Ecto.search_todos(%{tenant_id: @test_tenant, query: "buy milk", limit: 10})
+        Repository.Ecto.search_todos(%{tenant_id: @test_tenant, query: "buy milk", limit: 10})
 
       assert length(result) == 1
       assert hd(result).id == match.id
@@ -226,7 +227,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       for i <- 1..5, do: create_todo!(%{title: "Task #{i}"})
 
       {:ok, result} =
-        DataAccess.Ecto.search_todos(%{tenant_id: @test_tenant, query: "Task", limit: 3})
+        Repository.Ecto.search_todos(%{tenant_id: @test_tenant, query: "Task", limit: 3})
 
       assert length(result) == 3
     end
@@ -235,7 +236,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Something else"})
 
       {:ok, result} =
-        DataAccess.Ecto.search_todos(%{tenant_id: @test_tenant, query: "nonexistent", limit: 10})
+        Repository.Ecto.search_todos(%{tenant_id: @test_tenant, query: "nonexistent", limit: 10})
 
       assert result == []
     end
@@ -247,13 +248,13 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Active 2", completed: false})
       create_todo!(%{title: "Done 1", completed: true})
 
-      {:ok, result} = DataAccess.Ecto.get_stats(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.get_stats(%{tenant_id: @test_tenant})
 
       assert result == %{total: 3, active: 2, completed: 1}
     end
 
     test "returns zeros when no todos" do
-      {:ok, result} = DataAccess.Ecto.get_stats(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.get_stats(%{tenant_id: @test_tenant})
 
       assert result == %{total: 0, active: 0, completed: 0}
     end
@@ -262,7 +263,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Active 1", completed: false})
       create_todo!(%{title: "Active 2", completed: false})
 
-      {:ok, result} = DataAccess.Ecto.get_stats(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.get_stats(%{tenant_id: @test_tenant})
 
       assert result == %{total: 2, active: 2, completed: 0}
     end
@@ -271,7 +272,7 @@ defmodule TodosMcp.DataAccess.EctoTest do
       create_todo!(%{title: "Done 1", completed: true})
       create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = DataAccess.Ecto.get_stats(%{tenant_id: @test_tenant})
+      {:ok, result} = Repository.Ecto.get_stats(%{tenant_id: @test_tenant})
 
       assert result == %{total: 2, active: 0, completed: 2}
     end

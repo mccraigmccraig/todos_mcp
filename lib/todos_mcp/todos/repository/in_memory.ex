@@ -1,6 +1,6 @@
-defmodule TodosMcp.DataAccess.InMemoryImpl do
+defmodule TodosMcp.Todos.Repository.InMemory do
   @moduledoc """
-  In-memory implementation of DataAccess queries.
+  In-memory implementation of Repository queries.
 
   Uses `TodosMcp.InMemoryStore` as the backing store. All functions
   return `{:ok, value}` or `{:error, reason}` result tuples.
@@ -9,23 +9,24 @@ defmodule TodosMcp.DataAccess.InMemoryImpl do
 
       # Direct mode
       computation
-      |> Query.with_handler(%{TodosMcp.DataAccess.InMemoryImpl => :direct})
+      |> Query.with_handler(%{TodosMcp.Todos.Repository.InMemory => :direct})
       |> Comp.run!()
 
-      # Delegation mode (redirect from Impl)
+      # Delegation mode (redirect from Ecto)
       computation
-      |> Query.with_handler(%{TodosMcp.DataAccess.Ecto => {TodosMcp.DataAccess.InMemoryImpl, :delegate}})
+      |> Query.with_handler(%{TodosMcp.Todos.Repository.Ecto => {TodosMcp.Todos.Repository.InMemory, :delegate}})
       |> Comp.run!()
   """
 
-  alias TodosMcp.{InMemoryStore, Todo}
+  alias TodosMcp.InMemoryStore
+  alias TodosMcp.Todos.Todo
 
   @store InMemoryStore
 
   @doc """
-  Delegate query from DataAccess.Ecto to this module.
+  Delegate query from Repository.Ecto to this module.
 
-  Called by Query handler when resolver is `{InMemoryImpl, :delegate}`.
+  Called by Query handler when resolver is `{InMemory, :delegate}`.
   """
   def delegate(_original_mod, name, params) do
     apply(__MODULE__, name, [params])
