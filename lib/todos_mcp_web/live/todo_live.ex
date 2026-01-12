@@ -25,7 +25,7 @@ defmodule TodosMcpWeb.TodoLive do
   alias TodosMcp.Effects.Transcribe.GroqHandler
 
   alias __MODULE__.State
-  alias State.{Todos, ApiKeys, Chat, LogModal}
+  alias State.{TodosState, ApiKeysState, ChatState, LogModalState}
 
   # Allowed audio formats for voice recording (ensures atoms exist for to_existing_atom)
   @allowed_audio_formats [:webm, :mp3, :wav, :ogg]
@@ -34,25 +34,25 @@ defmodule TodosMcpWeb.TodoLive do
   # Typed Update Helpers
   # ============================================================================
 
-  @spec update_todos(Phoenix.LiveView.Socket.t(), (Todos.t() -> Todos.t())) ::
+  @spec update_todos(Phoenix.LiveView.Socket.t(), (TodosState.t() -> TodosState.t())) ::
           Phoenix.LiveView.Socket.t()
   defp update_todos(socket, fun) do
     assign(socket, todos: fun.(socket.assigns.todos))
   end
 
-  @spec update_api_keys(Phoenix.LiveView.Socket.t(), (ApiKeys.t() -> ApiKeys.t())) ::
+  @spec update_api_keys(Phoenix.LiveView.Socket.t(), (ApiKeysState.t() -> ApiKeysState.t())) ::
           Phoenix.LiveView.Socket.t()
   defp update_api_keys(socket, fun) do
     assign(socket, api_keys: fun.(socket.assigns.api_keys))
   end
 
-  @spec update_chat(Phoenix.LiveView.Socket.t(), (Chat.t() -> Chat.t())) ::
+  @spec update_chat(Phoenix.LiveView.Socket.t(), (ChatState.t() -> ChatState.t())) ::
           Phoenix.LiveView.Socket.t()
   defp update_chat(socket, fun) do
     assign(socket, chat: fun.(socket.assigns.chat))
   end
 
-  @spec update_log_modal(Phoenix.LiveView.Socket.t(), (LogModal.t() -> LogModal.t())) ::
+  @spec update_log_modal(Phoenix.LiveView.Socket.t(), (LogModalState.t() -> LogModalState.t())) ::
           Phoenix.LiveView.Socket.t()
   defp update_log_modal(socket, fun) do
     assign(socket, log_modal: fun.(socket.assigns.log_modal))
@@ -71,7 +71,7 @@ defmodule TodosMcpWeb.TodoLive do
 
     # Build API keys state
     api_keys = build_api_keys(session)
-    current_key = ApiKeys.current_key(api_keys)
+    current_key = ApiKeysState.current_key(api_keys)
 
     # Initialize conversation runner
     runner = start_runner_with_key(current_key, api_keys.selected_provider, tenant_id)
@@ -80,10 +80,10 @@ defmodule TodosMcpWeb.TodoLive do
      assign(socket,
        tenant_id: tenant_id,
        sidebar_open: true,
-       todos: %Todos{items: todo_items, stats: stats},
+       todos: %TodosState{items: todo_items, stats: stats},
        api_keys: api_keys,
-       chat: %Chat{runner: runner},
-       log_modal: %LogModal{}
+       chat: %ChatState{runner: runner},
+       log_modal: %LogModalState{}
      )}
   end
 
@@ -129,7 +129,7 @@ defmodule TodosMcpWeb.TodoLive do
           end
       end
 
-    %ApiKeys{
+    %ApiKeysState{
       anthropic: anthropic,
       gemini: gemini,
       groq: groq,
@@ -185,7 +185,7 @@ defmodule TodosMcpWeb.TodoLive do
 
   def handle_event("chat_clear", _params, socket) do
     api_keys = socket.assigns.api_keys
-    current_key = ApiKeys.current_key(api_keys)
+    current_key = ApiKeysState.current_key(api_keys)
 
     runner =
       start_runner_with_key(current_key, api_keys.selected_provider, socket.assigns.tenant_id)
@@ -196,7 +196,7 @@ defmodule TodosMcpWeb.TodoLive do
   def handle_event("change_provider", %{"provider" => provider_str}, socket) do
     provider = String.to_existing_atom(provider_str)
     api_keys = socket.assigns.api_keys
-    new_key = ApiKeys.key_for(api_keys, provider)
+    new_key = ApiKeysState.key_for(api_keys, provider)
     runner = start_runner_with_key(new_key, provider, socket.assigns.tenant_id)
 
     socket =
@@ -453,7 +453,11 @@ defmodule TodosMcpWeb.TodoLive do
     end
   end
 
-  defp format_error({:api_error, status, body}) do
+  defp format_error({:api_error, status, body}) when is_binary(body) do
+    "API error (#{status}): #{body}"
+  end
+
+  defp format_error({:api_error, status, body}) when is_map(body) do
     "API error (#{status}): #{inspect(body["error"]["message"] || body)}"
   end
 
@@ -461,7 +465,11 @@ defmodule TodosMcpWeb.TodoLive do
   defp format_error(:max_iterations_exceeded), do: "Too many tool calls. Please try again."
   defp format_error(reason), do: "Error: #{inspect(reason)}"
 
-  defp format_transcription_error({:api_error, status, body}) do
+  defp format_transcription_error({:api_error, status, body}) when is_binary(body) do
+    "Transcription error (#{status}): #{body}"
+  end
+
+  defp format_transcription_error({:api_error, status, body}) when is_map(body) do
     "Transcription error (#{status}): #{inspect(body["error"]["message"] || body)}"
   end
 
@@ -639,7 +647,7 @@ defmodule TodosMcpWeb.TodoLive do
   # ============================================================================
 
   defp chat_sidebar(assigns) do
-    current_key = ApiKeys.current_key(assigns.api_keys)
+    current_key = ApiKeysState.current_key(assigns.api_keys)
     assigns = assign(assigns, current_key: current_key)
 
     ~H"""
@@ -860,7 +868,7 @@ defmodule TodosMcpWeb.TodoLive do
   # ============================================================================
 
   defp api_key_modal(assigns) do
-    current_key = ApiKeys.current_key(assigns.api_keys)
+    current_key = ApiKeysState.current_key(assigns.api_keys)
     assigns = assign(assigns, current_key: current_key)
 
     ~H"""

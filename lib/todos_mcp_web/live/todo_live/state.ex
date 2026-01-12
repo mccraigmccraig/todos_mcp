@@ -7,16 +7,16 @@ defmodule TodosMcpWeb.TodoLive.State do
 
   ## Structure
 
-  - `Todos` - Todo list, stats, filter, form input
-  - `ApiKeys` - API key configuration and provider selection
-  - `Chat` - Conversation state, messages, voice recording
-  - `LogModal` - Effect log modal state
+  - `TodosState` - Todo list, stats, filter, form input
+  - `ApiKeysState` - API key configuration and provider selection
+  - `ChatState` - Conversation state, messages, voice recording
+  - `LogModalState` - Effect log modal state
   """
 
   alias TodosMcp.Todos.Todo
   alias TodosMcp.Llm.ConversationRunner
 
-  defmodule Todos do
+  defmodule TodosState do
     @moduledoc "Todo list state"
     defstruct items: [],
               stats: %{total: 0, active: 0, completed: 0},
@@ -38,7 +38,7 @@ defmodule TodosMcpWeb.TodoLive.State do
           }
   end
 
-  defmodule ApiKeys do
+  defmodule ApiKeysState do
     @moduledoc "API key configuration state"
     defstruct anthropic: nil,
               gemini: nil,
@@ -74,7 +74,7 @@ defmodule TodosMcpWeb.TodoLive.State do
     def key_for(%__MODULE__{} = keys, :groq), do: keys.groq
   end
 
-  defmodule Chat do
+  defmodule ChatState do
     @moduledoc "Chat/conversation state"
     defstruct messages: [],
               input: "",
@@ -113,7 +113,7 @@ defmodule TodosMcpWeb.TodoLive.State do
     end
   end
 
-  defmodule LogModal do
+  defmodule LogModalState do
     @moduledoc "Effect log modal state"
     defstruct tab: :inspect,
               inspect: nil,
