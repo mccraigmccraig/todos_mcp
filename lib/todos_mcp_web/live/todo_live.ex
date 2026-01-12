@@ -4,6 +4,16 @@ defmodule TodosMcpWeb.TodoLive do
 
   All actions dispatch through TodosMcp.Run which handles the
   Skuld effect handler stack.
+
+  ## State Structure
+
+  Uses typed structs for state management (see `TodoLive.State`):
+  - `@todos` - Todo list, stats, filter, form input
+  - `@api_keys` - API key configuration and provider selection
+  - `@chat` - Conversation state, messages, voice recording
+  - `@log_modal` - Effect log modal state
+  - `@tenant_id` - Tenant identifier (string)
+  - `@sidebar_open` - Sidebar visibility (boolean)
   """
   use TodosMcpWeb, :live_view
 
@@ -14,24 +24,76 @@ defmodule TodosMcpWeb.TodoLive do
   alias TodosMcp.Effects.Transcribe
   alias TodosMcp.Effects.Transcribe.GroqHandler
 
+  alias __MODULE__.State
+  alias State.{Todos, ApiKeys, Chat, LogModal}
+
   # Allowed audio formats for voice recording (ensures atoms exist for to_existing_atom)
   @allowed_audio_formats [:webm, :mp3, :wav, :ogg]
 
+  # ============================================================================
+  # Typed Update Helpers
+  # ============================================================================
+
+  @spec update_todos(Phoenix.LiveView.Socket.t(), (Todos.t() -> Todos.t())) ::
+          Phoenix.LiveView.Socket.t()
+  defp update_todos(socket, fun) do
+    assign(socket, todos: fun.(socket.assigns.todos))
+  end
+
+  @spec update_api_keys(Phoenix.LiveView.Socket.t(), (ApiKeys.t() -> ApiKeys.t())) ::
+          Phoenix.LiveView.Socket.t()
+  defp update_api_keys(socket, fun) do
+    assign(socket, api_keys: fun.(socket.assigns.api_keys))
+  end
+
+  @spec update_chat(Phoenix.LiveView.Socket.t(), (Chat.t() -> Chat.t())) ::
+          Phoenix.LiveView.Socket.t()
+  defp update_chat(socket, fun) do
+    assign(socket, chat: fun.(socket.assigns.chat))
+  end
+
+  @spec update_log_modal(Phoenix.LiveView.Socket.t(), (LogModal.t() -> LogModal.t())) ::
+          Phoenix.LiveView.Socket.t()
+  defp update_log_modal(socket, fun) do
+    assign(socket, log_modal: fun.(socket.assigns.log_modal))
+  end
+
+  # ============================================================================
+  # Mount
+  # ============================================================================
+
   @impl true
   def mount(_params, session, socket) do
-    # Get tenant_id from session or use default
     tenant_id = session["tenant_id"] || "default"
 
-    {:ok, todos} = Run.execute(%ListTodos{}, tenant_id: tenant_id)
+    {:ok, todo_items} = Run.execute(%ListTodos{}, tenant_id: tenant_id)
     {:ok, stats} = Run.execute(%GetStats{}, tenant_id: tenant_id)
 
-    # Get API keys from session or environment
+    # Build API keys state
+    api_keys = build_api_keys(session)
+    current_key = ApiKeys.current_key(api_keys)
+
+    # Initialize conversation runner
+    runner = start_runner_with_key(current_key, api_keys.selected_provider, tenant_id)
+
+    {:ok,
+     assign(socket,
+       tenant_id: tenant_id,
+       sidebar_open: true,
+       todos: %Todos{items: todo_items, stats: stats},
+       api_keys: api_keys,
+       chat: %Chat{runner: runner},
+       log_modal: %LogModal{}
+     )}
+  end
+
+  defp build_api_keys(session) do
     # Anthropic (Claude)
     session_api_key = session["api_key"]
     env_api_key = System.get_env("ANTHROPIC_API_KEY")
-    anthropic_api_key = session_api_key || env_api_key
+    anthropic = session_api_key || env_api_key
 
-    api_key_source =
+    source =
       cond do
         session_api_key -> :session
         env_api_key -> :env
@@ -39,131 +101,69 @@ defmodule TodosMcpWeb.TodoLive do
       end
 
     # Gemini
-    session_gemini_key = session["gemini_api_key"]
-    env_gemini_key = System.get_env("GEMINI_API_KEY")
-    gemini_api_key = session_gemini_key || env_gemini_key
+    gemini = session["gemini_api_key"] || System.get_env("GEMINI_API_KEY")
 
-    # Groq (for voice transcription)
-    session_groq_key = session["groq_api_key"]
-    env_groq_key = System.get_env("GROQ_API_KEY")
-    groq_api_key = session_groq_key || env_groq_key
+    # Groq
+    groq = session["groq_api_key"] || System.get_env("GROQ_API_KEY")
 
-    # Build keys map for provider lookup
-    api_keys = %{anthropic: anthropic_api_key, gemini: gemini_api_key, groq: groq_api_key}
-
-    # Get saved provider from session, with validation
+    # Determine selected provider
     saved_provider = session["selected_provider"]
 
     selected_provider =
       case saved_provider do
-        "groq" when groq_api_key != nil ->
+        "groq" when groq != nil ->
           :groq
 
-        "gemini" when gemini_api_key != nil ->
+        "gemini" when gemini != nil ->
           :gemini
 
-        "claude" when anthropic_api_key != nil ->
+        "claude" when anthropic != nil ->
           :claude
 
-        # Fallback: prefer Claude, then Groq, then Gemini
         _ ->
           cond do
-            anthropic_api_key -> :claude
-            groq_api_key -> :groq
-            gemini_api_key -> :gemini
+            anthropic -> :claude
+            groq -> :groq
+            gemini -> :gemini
             true -> :claude
           end
       end
 
-    # Get API key for selected provider
-    current_api_key = get_api_key_for_provider(selected_provider, api_keys)
-
-    # Initialize conversation runner (suspended at :await_user_input)
-    runner =
-      if current_api_key do
-        case ConversationRunner.start(
-               api_key: current_api_key,
-               provider: selected_provider,
-               tenant_id: tenant_id
-             ) do
-          {:ok, runner} -> runner
-          {:error, _reason} -> nil
-        end
-      else
-        nil
-      end
-
-    {:ok,
-     assign(socket,
-       tenant_id: tenant_id,
-       todos: todos,
-       stats: stats,
-       filter: :all,
-       new_todo_title: "",
-       sidebar_open: true,
-       # API keys
-       anthropic_api_key: anthropic_api_key,
-       gemini_api_key: gemini_api_key,
-       groq_api_key: groq_api_key,
-       api_key_source: api_key_source,
-       # Provider selection
-       selected_provider: selected_provider,
-       # Computed: current provider's API key (for UI convenience)
-       api_key: current_api_key,
-       # Chat state
-       chat_messages: [],
-       chat_input: "",
-       chat_loading: false,
-       chat_error: nil,
-       runner: runner,
-       # Voice recording state
-       is_recording: false,
-       is_transcribing: false,
-       # Log modal state
-       log_tab: :inspect,
-       log_inspect: nil,
-       log_json: nil
-     )}
+    %ApiKeys{
+      anthropic: anthropic,
+      gemini: gemini,
+      groq: groq,
+      source: source,
+      selected_provider: selected_provider
+    }
   end
 
-  defp get_api_key_for_provider(:claude, keys), do: keys.anthropic
-  defp get_api_key_for_provider(:gemini, keys), do: keys.gemini
-  defp get_api_key_for_provider(:groq, keys), do: keys.groq
-  defp get_api_key_for_provider(_, keys), do: keys.anthropic
+  defp start_runner_with_key(nil, _provider, _tenant_id), do: nil
 
-  defp start_runner(assigns) do
-    api_key = assigns.api_key
-
-    if api_key do
-      case ConversationRunner.start(
-             api_key: api_key,
-             provider: assigns.selected_provider,
-             tenant_id: assigns.tenant_id
-           ) do
-        {:ok, runner} -> runner
-        {:error, _reason} -> nil
-      end
-    else
-      nil
+  defp start_runner_with_key(api_key, provider, tenant_id) do
+    case ConversationRunner.start(api_key: api_key, provider: provider, tenant_id: tenant_id) do
+      {:ok, runner} -> runner
+      {:error, _reason} -> nil
     end
   end
 
-  # All handle_event clauses grouped together
+  # ============================================================================
+  # Handle Events - Chat
+  # ============================================================================
 
   @impl true
   def handle_event("chat_send", %{"message" => message}, socket) when message != "" do
-    if socket.assigns.runner do
-      # Add user message to UI immediately
+    chat = socket.assigns.chat
+
+    if chat.runner do
       user_msg = %{role: :user, content: message}
-      messages = socket.assigns.chat_messages ++ [user_msg]
 
-      # Clear input and show loading
       socket =
-        socket
-        |> assign(chat_messages: messages, chat_input: "", chat_loading: true, chat_error: nil)
+        update_chat(socket, fn c ->
+          %{c | messages: c.messages ++ [user_msg], input: "", loading: true, error: nil}
+        end)
 
-      # Send async to avoid blocking (LLM calls can take seconds)
-      runner = socket.assigns.runner
+      runner = socket.assigns.chat.runner
       pid = self()
 
       Task.start(fn ->
@@ -173,103 +173,92 @@ defmodule TodosMcpWeb.TodoLive do
 
       {:noreply, socket}
     else
-      {:noreply, assign(socket, chat_error: "API key not configured")}
+      {:noreply, update_chat(socket, fn c -> %{c | error: "API key not configured"} end)}
     end
   end
 
-  def handle_event("chat_send", _params, socket) do
-    {:noreply, socket}
-  end
+  def handle_event("chat_send", _params, socket), do: {:noreply, socket}
 
   def handle_event("chat_input", %{"message" => message}, socket) do
-    {:noreply, assign(socket, chat_input: message)}
+    {:noreply, update_chat(socket, fn c -> %{c | input: message} end)}
   end
 
   def handle_event("chat_clear", _params, socket) do
-    # Start a fresh conversation runner with current provider
-    runner = start_runner(socket.assigns)
-    {:noreply, assign(socket, runner: runner, chat_messages: [], chat_error: nil)}
+    api_keys = socket.assigns.api_keys
+    current_key = ApiKeys.current_key(api_keys)
+
+    runner =
+      start_runner_with_key(current_key, api_keys.selected_provider, socket.assigns.tenant_id)
+
+    {:noreply, update_chat(socket, fn c -> %{c | runner: runner, messages: [], error: nil} end)}
   end
 
   def handle_event("change_provider", %{"provider" => provider_str}, socket) do
     provider = String.to_existing_atom(provider_str)
+    api_keys = socket.assigns.api_keys
+    new_key = ApiKeys.key_for(api_keys, provider)
+    runner = start_runner_with_key(new_key, provider, socket.assigns.tenant_id)
 
-    api_keys = %{
-      anthropic: socket.assigns.anthropic_api_key,
-      gemini: socket.assigns.gemini_api_key,
-      groq: socket.assigns.groq_api_key
-    }
+    socket =
+      socket
+      |> update_api_keys(fn k -> %{k | selected_provider: provider} end)
+      |> update_chat(fn c -> %{c | runner: runner, messages: [], error: nil} end)
+      |> push_event("save_provider", %{provider: Atom.to_string(provider)})
 
-    api_key = get_api_key_for_provider(provider, api_keys)
-
-    # Start a new runner with the selected provider (clears conversation)
-    runner =
-      if api_key do
-        case ConversationRunner.start(
-               api_key: api_key,
-               provider: provider,
-               tenant_id: socket.assigns.tenant_id
-             ) do
-          {:ok, runner} -> runner
-          {:error, _reason} -> nil
-        end
-      else
-        nil
-      end
-
-    {:noreply,
-     socket
-     |> assign(
-       selected_provider: provider,
-       api_key: api_key,
-       runner: runner,
-       chat_messages: [],
-       chat_error: nil
-     )
-     |> push_event("save_provider", %{provider: Atom.to_string(provider)})}
+    {:noreply, socket}
   end
+
+  # ============================================================================
+  # Handle Events - Log Modal
+  # ============================================================================
 
   def handle_event("show_log", _params, socket) do
     {log_inspect, log_json} =
-      if socket.assigns.runner do
-        {
-          ConversationRunner.get_log_inspect(socket.assigns.runner),
-          ConversationRunner.get_log_json(socket.assigns.runner)
-        }
-      else
-        {"no runner", "null"}
+      case socket.assigns.chat.runner do
+        nil ->
+          {"no runner", "null"}
+
+        runner ->
+          {
+            ConversationRunner.get_log_inspect(runner),
+            ConversationRunner.get_log_json(runner)
+          }
       end
 
-    {:noreply, assign(socket, log_inspect: log_inspect, log_json: log_json)}
+    {:noreply, update_log_modal(socket, fn l -> %{l | inspect: log_inspect, json: log_json} end)}
   end
 
   def handle_event("log_tab", %{"tab" => tab}, socket) do
     tab = String.to_existing_atom(tab)
-    {:noreply, assign(socket, log_tab: tab)}
+    {:noreply, update_log_modal(socket, fn l -> %{l | tab: tab} end)}
   end
 
-  # Voice recording events
+  # ============================================================================
+  # Handle Events - Voice Recording
+  # ============================================================================
+
   def handle_event("recording_started", _params, socket) do
-    {:noreply, assign(socket, is_recording: true, chat_error: nil)}
+    {:noreply, update_chat(socket, fn c -> %{c | is_recording: true, error: nil} end)}
   end
 
   def handle_event("recording_error", %{"error" => error}, socket) do
-    {:noreply, assign(socket, is_recording: false, chat_error: "Microphone error: #{error}")}
+    {:noreply,
+     update_chat(socket, fn c ->
+       %{c | is_recording: false, error: "Microphone error: #{error}"}
+     end)}
   end
 
   def handle_event("audio_recorded", %{"audio" => base64_audio, "format" => format}, socket) do
-    socket = assign(socket, is_recording: false, is_transcribing: true)
+    socket = update_chat(socket, fn c -> %{c | is_recording: false, is_transcribing: true} end)
+    groq_key = socket.assigns.api_keys.groq
 
-    if socket.assigns.groq_api_key do
-      # Decode base64 audio and validate format
+    if groq_key do
       audio_data = Base.decode64!(base64_audio)
       format_atom = String.to_existing_atom(format)
 
       if format_atom in @allowed_audio_formats do
-        groq_key = socket.assigns.groq_api_key
         pid = self()
 
-        # Transcribe async
         Task.start(fn ->
           result = transcribe_audio(audio_data, format_atom, groq_key)
           send(pid, {:transcription_result, result})
@@ -278,105 +267,101 @@ defmodule TodosMcpWeb.TodoLive do
         {:noreply, socket}
       else
         {:noreply,
-         assign(socket,
-           is_transcribing: false,
-           chat_error: "Unsupported audio format: #{format}"
-         )}
+         update_chat(socket, fn c ->
+           %{c | is_transcribing: false, error: "Unsupported audio format: #{format}"}
+         end)}
       end
     else
       {:noreply,
-       assign(socket,
-         is_transcribing: false,
-         chat_error: "Groq API key not configured for voice input"
-       )}
+       update_chat(socket, fn c ->
+         %{c | is_transcribing: false, error: "Groq API key not configured for voice input"}
+       end)}
     end
   end
+
+  # ============================================================================
+  # Handle Events - UI
+  # ============================================================================
 
   def handle_event("toggle_sidebar", _params, socket) do
     {:noreply, assign(socket, sidebar_open: !socket.assigns.sidebar_open)}
   end
 
+  # ============================================================================
+  # Handle Events - Todos
+  # ============================================================================
+
   def handle_event("create", %{"title" => title}, socket) when title != "" do
-    case run(socket, %CreateTodo{title: title}) do
+    case run_cmd(socket, %CreateTodo{title: title}) do
       {:ok, _todo} ->
-        {:noreply, socket |> assign(new_todo_title: "") |> reload_todos()}
+        socket =
+          socket
+          |> update_todos(fn t -> %{t | new_title: ""} end)
+          |> reload_todos()
+
+        {:noreply, socket}
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Failed to create todo")}
     end
   end
 
-  def handle_event("create", _params, socket) do
-    {:noreply, socket}
-  end
+  def handle_event("create", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle", %{"id" => id}, socket) do
-    case run(socket, %ToggleTodo{id: id}) do
-      {:ok, _todo} ->
-        {:noreply, reload_todos(socket)}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to toggle todo")}
+    case run_cmd(socket, %ToggleTodo{id: id}) do
+      {:ok, _todo} -> {:noreply, reload_todos(socket)}
+      {:error, _reason} -> {:noreply, put_flash(socket, :error, "Failed to toggle todo")}
     end
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
-    case run(socket, %DeleteTodo{id: id}) do
-      {:ok, _todo} ->
-        {:noreply, reload_todos(socket)}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete todo")}
+    case run_cmd(socket, %DeleteTodo{id: id}) do
+      {:ok, _todo} -> {:noreply, reload_todos(socket)}
+      {:error, _reason} -> {:noreply, put_flash(socket, :error, "Failed to delete todo")}
     end
   end
 
   def handle_event("clear_completed", _params, socket) do
-    case run(socket, %ClearCompleted{}) do
-      {:ok, _result} ->
-        {:noreply, reload_todos(socket)}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to clear completed")}
+    case run_cmd(socket, %ClearCompleted{}) do
+      {:ok, _result} -> {:noreply, reload_todos(socket)}
+      {:error, _reason} -> {:noreply, put_flash(socket, :error, "Failed to clear completed")}
     end
   end
 
   def handle_event("complete_all", _params, socket) do
-    case run(socket, %CompleteAll{}) do
-      {:ok, _result} ->
-        {:noreply, reload_todos(socket)}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to complete all")}
+    case run_cmd(socket, %CompleteAll{}) do
+      {:ok, _result} -> {:noreply, reload_todos(socket)}
+      {:error, _reason} -> {:noreply, put_flash(socket, :error, "Failed to complete all")}
     end
   end
 
   def handle_event("filter", %{"filter" => filter}, socket) do
     filter_atom = String.to_existing_atom(filter)
-    {:ok, todos} = run(socket, %ListTodos{filter: filter_atom})
+    {:ok, items} = run_cmd(socket, %ListTodos{filter: filter_atom})
 
-    {:noreply, assign(socket, todos: todos, filter: filter_atom)}
+    {:noreply, update_todos(socket, fn t -> %{t | items: items, filter: filter_atom} end)}
   end
 
   def handle_event("update_new_title", %{"title" => title}, socket) do
-    {:noreply, assign(socket, new_todo_title: title)}
+    {:noreply, update_todos(socket, fn t -> %{t | new_title: title} end)}
   end
 
-  # Handle LLM response from ConversationRunner
+  # ============================================================================
+  # Handle Info
+  # ============================================================================
+
   @impl true
   def handle_info({:llm_response, result}, socket) do
     socket =
       case result do
         {:ok, response, updated_runner} ->
-          # Add assistant message with tool executions
           assistant_msg = %{
             role: :assistant,
             content: response.text,
             tool_executions: response.tool_executions
           }
 
-          messages = socket.assigns.chat_messages ++ [assistant_msg]
-
-          # Refresh todos if any tools executed
           socket =
             if response.tool_executions != [] do
               reload_todos(socket)
@@ -384,45 +369,35 @@ defmodule TodosMcpWeb.TodoLive do
               socket
             end
 
-          assign(socket,
-            runner: updated_runner,
-            chat_messages: messages,
-            chat_loading: false
-          )
+          update_chat(socket, fn c ->
+            %{c | runner: updated_runner, messages: c.messages ++ [assistant_msg], loading: false}
+          end)
 
         {:error, reason, updated_runner} ->
-          # Even on error, update the runner (it's back at :await_user_input)
-          assign(socket,
-            runner: updated_runner,
-            chat_loading: false,
-            chat_error: format_error(reason)
-          )
+          update_chat(socket, fn c ->
+            %{c | runner: updated_runner, loading: false, error: format_error(reason)}
+          end)
       end
 
     {:noreply, socket}
   end
 
-  # Handle transcription result - then send to LLM
   def handle_info({:transcription_result, result}, socket) do
-    socket = assign(socket, is_transcribing: false)
+    socket = update_chat(socket, fn c -> %{c | is_transcribing: false} end)
 
     case result do
       {:ok, %{text: text}} when text != "" ->
-        # We have transcribed text - now send it to the LLM as if user typed it
-        # Reuse the chat_send logic
-        if socket.assigns.runner do
+        chat = socket.assigns.chat
+
+        if chat.runner do
           user_msg = %{role: :user, content: text}
-          messages = socket.assigns.chat_messages ++ [user_msg]
 
           socket =
-            assign(socket,
-              chat_messages: messages,
-              chat_input: "",
-              chat_loading: true,
-              chat_error: nil
-            )
+            update_chat(socket, fn c ->
+              %{c | messages: c.messages ++ [user_msg], input: "", loading: true, error: nil}
+            end)
 
-          runner = socket.assigns.runner
+          runner = socket.assigns.chat.runner
           pid = self()
 
           Task.start(fn ->
@@ -432,33 +407,38 @@ defmodule TodosMcpWeb.TodoLive do
 
           {:noreply, socket}
         else
-          {:noreply, assign(socket, chat_error: "API key not configured")}
+          {:noreply, update_chat(socket, fn c -> %{c | error: "API key not configured"} end)}
         end
 
       {:ok, %{text: ""}} ->
-        {:noreply, assign(socket, chat_error: "No speech detected")}
+        {:noreply, update_chat(socket, fn c -> %{c | error: "No speech detected"} end)}
 
       {:error, reason} ->
-        {:noreply, assign(socket, chat_error: format_transcription_error(reason))}
+        {:noreply,
+         update_chat(socket, fn c -> %{c | error: format_transcription_error(reason)} end)}
 
-      # Handle unexpected computation errors (e.g., Skuld.Comp.Throw)
       _other ->
-        {:noreply, assign(socket, chat_error: "Transcription failed: unexpected error")}
+        {:noreply,
+         update_chat(socket, fn c -> %{c | error: "Transcription failed: unexpected error"} end)}
     end
   end
 
+  # ============================================================================
+  # Private Helpers
+  # ============================================================================
+
   defp reload_todos(socket) do
-    {:ok, todos} = run(socket, %ListTodos{filter: socket.assigns.filter})
-    {:ok, stats} = run(socket, %GetStats{})
-    assign(socket, todos: todos, stats: stats)
+    filter = socket.assigns.todos.filter
+    {:ok, items} = run_cmd(socket, %ListTodos{filter: filter})
+    {:ok, stats} = run_cmd(socket, %GetStats{})
+
+    update_todos(socket, fn t -> %{t | items: items, stats: stats} end)
   end
 
-  # Helper to run operations with tenant_id from socket
-  defp run(socket, operation) do
+  defp run_cmd(socket, operation) do
     Run.execute(operation, tenant_id: socket.assigns.tenant_id)
   end
 
-  # Transcribe audio using Groq Whisper via the Transcribe effect
   defp transcribe_audio(audio_data, format, api_key) do
     alias Skuld.Comp
 
@@ -477,17 +457,9 @@ defmodule TodosMcpWeb.TodoLive do
     "API error (#{status}): #{inspect(body["error"]["message"] || body)}"
   end
 
-  defp format_error({:request_failed, reason}) do
-    "Request failed: #{inspect(reason)}"
-  end
-
-  defp format_error(:max_iterations_exceeded) do
-    "Too many tool calls. Please try again."
-  end
-
-  defp format_error(reason) do
-    "Error: #{inspect(reason)}"
-  end
+  defp format_error({:request_failed, reason}), do: "Request failed: #{inspect(reason)}"
+  defp format_error(:max_iterations_exceeded), do: "Too many tool calls. Please try again."
+  defp format_error(reason), do: "Error: #{inspect(reason)}"
 
   defp format_transcription_error({:api_error, status, body}) do
     "Transcription error (#{status}): #{inspect(body["error"]["message"] || body)}"
@@ -497,9 +469,11 @@ defmodule TodosMcpWeb.TodoLive do
     "Transcription failed: #{inspect(reason)}"
   end
 
-  defp format_transcription_error(reason) do
-    "Transcription error: #{inspect(reason)}"
-  end
+  defp format_transcription_error(reason), do: "Transcription error: #{inspect(reason)}"
+
+  # ============================================================================
+  # Render
+  # ============================================================================
 
   @impl true
   def render(assigns) do
@@ -532,7 +506,7 @@ defmodule TodosMcpWeb.TodoLive do
               <input
                 type="text"
                 name="title"
-                value={@new_todo_title}
+                value={@todos.new_title}
                 phx-change="update_new_title"
                 placeholder="What needs to be done?"
                 class="flex-1 px-4 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
@@ -550,18 +524,18 @@ defmodule TodosMcpWeb.TodoLive do
           <%!-- Stats and bulk actions --%>
           <div class="flex justify-between items-center mb-4 text-sm text-base-content/60">
             <span>
-              {@stats.active} active, {@stats.completed} completed
+              {@todos.stats.active} active, {@todos.stats.completed} completed
             </span>
             <div class="flex gap-2">
               <button
-                :if={@stats.active > 0}
+                :if={@todos.stats.active > 0}
                 phx-click="complete_all"
                 class="text-primary hover:underline"
               >
                 Complete all
               </button>
               <button
-                :if={@stats.completed > 0}
+                :if={@todos.stats.completed > 0}
                 phx-click="clear_completed"
                 class="text-error hover:underline"
               >
@@ -578,8 +552,8 @@ defmodule TodosMcpWeb.TodoLive do
               phx-value-filter={filter}
               class={[
                 "pb-2 px-1",
-                @filter == filter && "border-b-2 border-primary text-primary",
-                @filter != filter && "text-base-content/50 hover:text-base-content/80"
+                @todos.filter == filter && "border-b-2 border-primary text-primary",
+                @todos.filter != filter && "text-base-content/50 hover:text-base-content/80"
               ]}
             >
               {String.capitalize(to_string(filter))}
@@ -588,7 +562,10 @@ defmodule TodosMcpWeb.TodoLive do
 
           <%!-- Todo list --%>
           <ul class="space-y-2">
-            <li :for={todo <- @todos} class="flex items-center gap-3 p-3 bg-base-200 rounded-lg group">
+            <li
+              :for={todo <- @todos.items}
+              class="flex items-center gap-3 p-3 bg-base-200 rounded-lg group"
+            >
               <input
                 type="checkbox"
                 checked={todo.completed}
@@ -600,7 +577,10 @@ defmodule TodosMcpWeb.TodoLive do
                 <span class={["text-base-content", todo.completed && "line-through opacity-50"]}>
                   {todo.title}
                 </span>
-                <p :if={todo.description not in [nil, ""]} class={["text-sm mt-0.5 opacity-70", todo.completed && "line-through opacity-40"]}>
+                <p
+                  :if={todo.description not in [nil, ""]}
+                  class={["text-sm mt-0.5 opacity-70", todo.completed && "line-through opacity-40"]}
+                >
                   {todo.description}
                 </p>
               </div>
@@ -624,8 +604,8 @@ defmodule TodosMcpWeb.TodoLive do
             </li>
           </ul>
 
-          <p :if={@todos == []} class="text-center text-base-content/40 py-8">
-            <%= case @filter do %>
+          <p :if={@todos.items == []} class="text-center text-base-content/40 py-8">
+            <%= case @todos.filter do %>
               <% :all -> %>
                 No todos yet. Add one above!
               <% :active -> %>
@@ -638,319 +618,364 @@ defmodule TodosMcpWeb.TodoLive do
       </div>
 
       <%!-- Chat Sidebar --%>
-      <div
+      <.chat_sidebar
         :if={@sidebar_open}
-        class="fixed right-0 top-[64px] bottom-0 w-80 flex flex-col bg-base-200 border-l border-base-300"
-      >
-        <%!-- Header --%>
-        <div class="flex items-center justify-between p-3 border-b border-base-300">
-          <div class="flex items-center gap-2">
-            <h2 class="font-semibold text-base-content">AI</h2>
-            <form phx-change="change_provider">
-              <select
-                id="provider-select"
-                phx-hook="ProviderSelector"
-                name="provider"
-                data-selected={Atom.to_string(@selected_provider)}
-                class="select select-xs bg-base-300 border-base-100 text-base-content min-h-0 h-7 pl-2 pr-6"
-              >
-                <%= Phoenix.HTML.Form.options_for_select(
-                  [
-                    {"Claude #{if @anthropic_api_key, do: "", else: "(no key)"}", "claude"},
-                    {"Groq #{if @groq_api_key, do: "", else: "(no key)"}", "groq"},
-                    {"Gemini #{if @gemini_api_key, do: "", else: "(no key)"}", "gemini"}
-                  ],
-                  Atom.to_string(@selected_provider)
-                ) %>
-              </select>
-            </form>
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              :if={@runner}
-              phx-click={JS.push("show_log") |> show_modal("log-modal")}
-              class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors"
-              title="View effect log"
-            >
-              <.icon name="hero-code-bracket" class="w-3.5 h-3.5" />
-              <span>Log</span>
-            </button>
-            <button
-              :if={@chat_messages != []}
-              phx-click="chat_clear"
-              class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-base-content/70 bg-base-300 rounded-md hover:bg-base-100 transition-colors"
-            >
-              <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
-              <span>Clear</span>
-            </button>
-          </div>
-        </div>
-
-        <%!-- API Key Status --%>
-        <div :if={!@api_key} class="p-4 bg-warning/10 text-warning text-sm">
-          <p class="font-medium">API Key Required</p>
-          <p class="mt-1 text-warning/80">
-            Configure your {provider_display_name(@selected_provider)} API key to enable chat.
-          </p>
-          <button
-            type="button"
-            phx-click={show_modal("api-key-modal")}
-            class="mt-2 text-primary hover:underline"
-          >
-            Configure API Key
-          </button>
-        </div>
-
-        <div
-          :if={@api_key}
-          class="px-3 py-2 text-xs text-base-content/50 border-b border-base-300 flex items-center justify-between"
-        >
-          <span>
-            API Key: {if @api_key_source == :session, do: "configured", else: "from env"}
-          </span>
-          <button
-            type="button"
-            phx-click={show_modal("api-key-modal")}
-            class="hover:text-base-content/80"
-            title="Settings"
-          >
-            <.icon name="hero-cog-6-tooth" class="w-4 h-4" />
-          </button>
-        </div>
-
-        <%!-- Messages --%>
-        <div class="flex-1 overflow-y-auto p-3 space-y-3" id="chat-messages" phx-hook="ScrollToBottom">
-          <div :for={msg <- @chat_messages} class={message_class(msg.role)}>
-            <div class="text-xs text-base-content/50 mb-1">
-              {if msg.role == :user, do: "You", else: "Assistant"}
-            </div>
-            <div class="whitespace-pre-wrap text-sm text-base-content">{msg.content}</div>
-
-            <%!-- Tool executions --%>
-            <div :if={msg[:tool_executions] && msg.tool_executions != []} class="mt-2 space-y-1">
-              <div
-                :for={exec <- msg.tool_executions}
-                class="text-xs text-base-content bg-base-100 rounded px-2 py-1"
-              >
-                <span class="font-medium">{exec.tool}</span>
-                <span :if={match?({:ok, _}, exec.result)} class="text-success ml-1">ok</span>
-                <span :if={match?({:error, _}, exec.result)} class="text-error ml-1">error</span>
-              </div>
-            </div>
-          </div>
-
-          <%!-- Loading indicator --%>
-          <div :if={@chat_loading} class="flex items-center gap-2 text-base-content/50">
-            <span class="loading loading-dots loading-sm"></span>
-            <span class="text-sm">Thinking...</span>
-          </div>
-
-          <%!-- Transcribing indicator --%>
-          <div :if={@is_transcribing} class="flex items-center gap-2 text-base-content/50">
-            <span class="loading loading-dots loading-sm"></span>
-            <span class="text-sm">Transcribing...</span>
-          </div>
-        </div>
-
-        <%!-- Error display --%>
-        <div :if={@chat_error} class="px-3 py-2 bg-error/10 text-error text-sm">
-          {@chat_error}
-        </div>
-
-        <%!-- Input form --%>
-        <form phx-submit="chat_send" class="p-3 border-t border-base-300">
-          <div class="flex gap-2">
-            <input
-              type="text"
-              name="message"
-              id="chat-input"
-              value={@chat_input}
-              phx-change="chat_input"
-              phx-hook="MaintainFocus"
-              placeholder={
-                if @api_key, do: "Ask me to manage your todos...", else: "Configure API key first"
-              }
-              disabled={!@api_key || @chat_loading || @is_transcribing}
-              class="flex-1 min-w-0 px-3 py-2 text-sm bg-base-300 border border-base-100 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-              autocomplete="off"
-            />
-            <%!-- Voice record button --%>
-            <button
-              type="button"
-              id="voice-record-btn"
-              phx-hook="AudioRecorder"
-              disabled={!@api_key || !@groq_api_key || @chat_loading || @is_transcribing}
-              title={
-                cond do
-                  !@groq_api_key -> "Configure Groq API key for voice"
-                  @is_recording -> "Click to stop recording"
-                  true -> "Click to start voice recording"
-                end
-              }
-              class={[
-                "flex-shrink-0 px-3 py-2 text-sm rounded-lg transition-colors",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
-                @is_recording && "bg-error text-error-content animate-pulse",
-                !@is_recording && "bg-base-300 text-base-content hover:bg-base-100"
-              ]}
-            >
-              <.icon
-                name={if @is_recording, do: "hero-stop", else: "hero-microphone"}
-                class="w-5 h-5"
-              />
-            </button>
-            <button
-              type="submit"
-              disabled={!@api_key || @chat_loading || @is_transcribing || @chat_input == ""}
-              title="Send message"
-              class="flex-shrink-0 px-3 py-2 bg-primary text-primary-content text-sm rounded-lg hover:bg-primary/80 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <.icon name="hero-paper-airplane" class="w-5 h-5" />
-            </button>
-          </div>
-        </form>
-      </div>
+        chat={@chat}
+        api_keys={@api_keys}
+        log_modal={@log_modal}
+      />
 
       <%!-- Effect Log Modal --%>
-      <.modal id="log-modal" class="w-full max-w-4xl">
-        <:title>Effect Log</:title>
-        <p class="text-sm text-base-content/60 mb-4">
-          Skuld EffectLogger captures all effects during execution. The log is pruned
-          after each loop iteration to stay bounded.
-        </p>
-
-        <%!-- Tabs --%>
-        <div class="tabs tabs-bordered mb-4">
-          <button
-            phx-click="log_tab"
-            phx-value-tab="inspect"
-            class={["tab", @log_tab == :inspect && "tab-active"]}
-          >
-            Inspect
-          </button>
-          <button
-            phx-click="log_tab"
-            phx-value-tab="json"
-            class={["tab", @log_tab == :json && "tab-active"]}
-          >
-            JSON (Cold Resume)
-          </button>
-        </div>
-
-        <%!-- Tab Content - use hidden class instead of :if to avoid DOM changes --%>
-        <div class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-[60vh] font-mono text-xs">
-          <pre class={@log_tab != :inspect && "hidden"}>{@log_inspect || "nil"}</pre>
-          <pre class={@log_tab != :json && "hidden"}>{@log_json || "null"}</pre>
-        </div>
-      </.modal>
+      <.log_modal log_modal={@log_modal} />
 
       <%!-- API Key Settings Modal --%>
-      <.modal id="api-key-modal">
-        <:title>API Key Settings</:title>
-
-        <p class="text-sm text-base-content/60 mb-4">
-          Configure your API keys to enable AI features.
-          Keys are stored in your browser session and never sent to our servers.
-        </p>
-
-        <form action={~p"/settings/api-key"} method="post" class="space-y-4">
-          <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-
-          <div>
-            <label for="api_key" class="block text-sm font-medium text-base-content mb-1">
-              Anthropic API Key <span class="text-base-content/40 font-normal">(Claude)</span>
-            </label>
-            <input
-              type="password"
-              name="api_key"
-              id="api_key"
-              placeholder="sk-ant-..."
-              class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              autocomplete="off"
-            />
-            <p :if={@api_key_source == :env} class="text-xs text-base-content/50 mt-1">
-              Using key from ANTHROPIC_API_KEY env var
-            </p>
-          </div>
-
-          <div>
-            <label for="gemini_api_key" class="block text-sm font-medium text-base-content mb-1">
-              Google AI API Key <span class="text-base-content/40 font-normal">(Gemini - free tier)</span>
-            </label>
-            <input
-              type="password"
-              name="gemini_api_key"
-              id="gemini_api_key"
-              placeholder="AIza..."
-              class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              autocomplete="off"
-            />
-            <p :if={@gemini_api_key && !@api_key_source} class="text-xs text-base-content/50 mt-1">
-              Using key from GEMINI_API_KEY env var
-            </p>
-            <p class="text-xs text-base-content/40 mt-1">
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                class="text-primary hover:underline"
-              >
-                Get a free Google AI API key
-              </a>
-            </p>
-          </div>
-
-          <div>
-            <label for="groq_api_key" class="block text-sm font-medium text-base-content mb-1">
-              Groq API Key <span class="text-base-content/40 font-normal">(for voice, optional)</span>
-            </label>
-            <input
-              type="password"
-              name="groq_api_key"
-              id="groq_api_key"
-              placeholder="gsk_..."
-              class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              autocomplete="off"
-            />
-            <p :if={@groq_api_key && !@api_key_source} class="text-xs text-base-content/50 mt-1">
-              Using key from GROQ_API_KEY env var
-            </p>
-            <p class="text-xs text-base-content/40 mt-1">
-              <a
-                href="https://console.groq.com/keys"
-                target="_blank"
-                class="text-primary hover:underline"
-              >
-                Create a free Groq API key
-              </a>
-            </p>
-          </div>
-
-          <div class="flex gap-2">
-            <button
-              type="submit"
-              class="flex-1 px-4 py-2 bg-primary text-primary-content rounded-lg hover:bg-primary/80"
-            >
-              Save
-            </button>
-          </div>
-        </form>
-
-        <div :if={@api_key && @api_key_source == :session} class="mt-4 pt-4 border-t border-base-300">
-          <form action={~p"/settings/api-key"} method="post">
-            <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-            <input type="hidden" name="_method" value="delete" />
-            <button
-              type="submit"
-              class="text-sm text-error hover:underline"
-            >
-              Clear saved API keys
-            </button>
-          </form>
-        </div>
-      </.modal>
+      <.api_key_modal api_keys={@api_keys} />
     </div>
     """
   end
+
+  # ============================================================================
+  # Component: Chat Sidebar
+  # ============================================================================
+
+  defp chat_sidebar(assigns) do
+    current_key = ApiKeys.current_key(assigns.api_keys)
+    assigns = assign(assigns, current_key: current_key)
+
+    ~H"""
+    <div class="fixed right-0 top-[64px] bottom-0 w-80 flex flex-col bg-base-200 border-l border-base-300">
+      <%!-- Header --%>
+      <div class="flex items-center justify-between p-3 border-b border-base-300">
+        <div class="flex items-center gap-2">
+          <h2 class="font-semibold text-base-content">AI</h2>
+          <form phx-change="change_provider">
+            <select
+              id="provider-select"
+              phx-hook="ProviderSelector"
+              name="provider"
+              data-selected={Atom.to_string(@api_keys.selected_provider)}
+              class="select select-xs bg-base-300 border-base-100 text-base-content min-h-0 h-7 pl-2 pr-6"
+            >
+              <%= Phoenix.HTML.Form.options_for_select(
+                [
+                  {"Claude #{if @api_keys.anthropic, do: "", else: "(no key)"}", "claude"},
+                  {"Groq #{if @api_keys.groq, do: "", else: "(no key)"}", "groq"},
+                  {"Gemini #{if @api_keys.gemini, do: "", else: "(no key)"}", "gemini"}
+                ],
+                Atom.to_string(@api_keys.selected_provider)
+              ) %>
+            </select>
+          </form>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            :if={@chat.runner}
+            phx-click={JS.push("show_log") |> show_modal("log-modal")}
+            class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors"
+            title="View effect log"
+          >
+            <.icon name="hero-code-bracket" class="w-3.5 h-3.5" />
+            <span>Log</span>
+          </button>
+          <button
+            :if={@chat.messages != []}
+            phx-click="chat_clear"
+            class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-base-content/70 bg-base-300 rounded-md hover:bg-base-100 transition-colors"
+          >
+            <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+            <span>Clear</span>
+          </button>
+        </div>
+      </div>
+
+      <%!-- API Key Status --%>
+      <div :if={!@current_key} class="p-4 bg-warning/10 text-warning text-sm">
+        <p class="font-medium">API Key Required</p>
+        <p class="mt-1 text-warning/80">
+          Configure your {provider_display_name(@api_keys.selected_provider)} API key to enable chat.
+        </p>
+        <button
+          type="button"
+          phx-click={show_modal("api-key-modal")}
+          class="mt-2 text-primary hover:underline"
+        >
+          Configure API Key
+        </button>
+      </div>
+
+      <div
+        :if={@current_key}
+        class="px-3 py-2 text-xs text-base-content/50 border-b border-base-300 flex items-center justify-between"
+      >
+        <span>
+          API Key: {if @api_keys.source == :session, do: "configured", else: "from env"}
+        </span>
+        <button
+          type="button"
+          phx-click={show_modal("api-key-modal")}
+          class="hover:text-base-content/80"
+          title="Settings"
+        >
+          <.icon name="hero-cog-6-tooth" class="w-4 h-4" />
+        </button>
+      </div>
+
+      <%!-- Messages --%>
+      <div class="flex-1 overflow-y-auto p-3 space-y-3" id="chat-messages" phx-hook="ScrollToBottom">
+        <div :for={msg <- @chat.messages} class={message_class(msg.role)}>
+          <div class="text-xs text-base-content/50 mb-1">
+            {if msg.role == :user, do: "You", else: "Assistant"}
+          </div>
+          <div class="whitespace-pre-wrap text-sm text-base-content">{msg.content}</div>
+
+          <%!-- Tool executions --%>
+          <div :if={msg[:tool_executions] && msg.tool_executions != []} class="mt-2 space-y-1">
+            <div
+              :for={exec <- msg.tool_executions}
+              class="text-xs text-base-content bg-base-100 rounded px-2 py-1"
+            >
+              <span class="font-medium">{exec.tool}</span>
+              <span :if={match?({:ok, _}, exec.result)} class="text-success ml-1">ok</span>
+              <span :if={match?({:error, _}, exec.result)} class="text-error ml-1">error</span>
+            </div>
+          </div>
+        </div>
+
+        <%!-- Loading indicator --%>
+        <div :if={@chat.loading} class="flex items-center gap-2 text-base-content/50">
+          <span class="loading loading-dots loading-sm"></span>
+          <span class="text-sm">Thinking...</span>
+        </div>
+
+        <%!-- Transcribing indicator --%>
+        <div :if={@chat.is_transcribing} class="flex items-center gap-2 text-base-content/50">
+          <span class="loading loading-dots loading-sm"></span>
+          <span class="text-sm">Transcribing...</span>
+        </div>
+      </div>
+
+      <%!-- Error display --%>
+      <div :if={@chat.error} class="px-3 py-2 bg-error/10 text-error text-sm">
+        {@chat.error}
+      </div>
+
+      <%!-- Input form --%>
+      <form phx-submit="chat_send" class="p-3 border-t border-base-300">
+        <div class="flex gap-2">
+          <input
+            type="text"
+            name="message"
+            id="chat-input"
+            value={@chat.input}
+            phx-change="chat_input"
+            phx-hook="MaintainFocus"
+            placeholder={
+              if @current_key, do: "Ask me to manage your todos...", else: "Configure API key first"
+            }
+            disabled={!@current_key || @chat.loading || @chat.is_transcribing}
+            class="flex-1 min-w-0 px-3 py-2 text-sm bg-base-300 border border-base-100 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+            autocomplete="off"
+          />
+          <%!-- Voice record button --%>
+          <button
+            type="button"
+            id="voice-record-btn"
+            phx-hook="AudioRecorder"
+            disabled={!@current_key || !@api_keys.groq || @chat.loading || @chat.is_transcribing}
+            title={
+              cond do
+                !@api_keys.groq -> "Configure Groq API key for voice"
+                @chat.is_recording -> "Click to stop recording"
+                true -> "Click to start voice recording"
+              end
+            }
+            class={[
+              "flex-shrink-0 px-3 py-2 text-sm rounded-lg transition-colors",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+              @chat.is_recording && "bg-error text-error-content animate-pulse",
+              !@chat.is_recording && "bg-base-300 text-base-content hover:bg-base-100"
+            ]}
+          >
+            <.icon
+              name={if @chat.is_recording, do: "hero-stop", else: "hero-microphone"}
+              class="w-5 h-5"
+            />
+          </button>
+          <button
+            type="submit"
+            disabled={!@current_key || @chat.loading || @chat.is_transcribing || @chat.input == ""}
+            title="Send message"
+            class="flex-shrink-0 px-3 py-2 bg-primary text-primary-content text-sm rounded-lg hover:bg-primary/80 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <.icon name="hero-paper-airplane" class="w-5 h-5" />
+          </button>
+        </div>
+      </form>
+    </div>
+    """
+  end
+
+  # ============================================================================
+  # Component: Log Modal
+  # ============================================================================
+
+  defp log_modal(assigns) do
+    ~H"""
+    <.modal id="log-modal" class="w-full max-w-4xl">
+      <:title>Effect Log</:title>
+      <p class="text-sm text-base-content/60 mb-4">
+        Skuld EffectLogger captures all effects during execution. The log is pruned
+        after each loop iteration to stay bounded.
+      </p>
+
+      <%!-- Tabs --%>
+      <div class="tabs tabs-bordered mb-4">
+        <button
+          phx-click="log_tab"
+          phx-value-tab="inspect"
+          class={["tab", @log_modal.tab == :inspect && "tab-active"]}
+        >
+          Inspect
+        </button>
+        <button
+          phx-click="log_tab"
+          phx-value-tab="json"
+          class={["tab", @log_modal.tab == :json && "tab-active"]}
+        >
+          JSON (Cold Resume)
+        </button>
+      </div>
+
+      <%!-- Tab Content --%>
+      <div class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-[60vh] font-mono text-xs">
+        <pre class={@log_modal.tab != :inspect && "hidden"}>{@log_modal.inspect || "nil"}</pre>
+        <pre class={@log_modal.tab != :json && "hidden"}>{@log_modal.json || "null"}</pre>
+      </div>
+    </.modal>
+    """
+  end
+
+  # ============================================================================
+  # Component: API Key Modal
+  # ============================================================================
+
+  defp api_key_modal(assigns) do
+    current_key = ApiKeys.current_key(assigns.api_keys)
+    assigns = assign(assigns, current_key: current_key)
+
+    ~H"""
+    <.modal id="api-key-modal">
+      <:title>API Key Settings</:title>
+
+      <p class="text-sm text-base-content/60 mb-4">
+        Configure your API keys to enable AI features.
+        Keys are stored in your browser session and never sent to our servers.
+      </p>
+
+      <form action={~p"/settings/api-key"} method="post" class="space-y-4">
+        <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+
+        <div>
+          <label for="api_key" class="block text-sm font-medium text-base-content mb-1">
+            Anthropic API Key <span class="text-base-content/40 font-normal">(Claude)</span>
+          </label>
+          <input
+            type="password"
+            name="api_key"
+            id="api_key"
+            placeholder="sk-ant-..."
+            class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            autocomplete="off"
+          />
+          <p :if={@api_keys.source == :env} class="text-xs text-base-content/50 mt-1">
+            Using key from ANTHROPIC_API_KEY env var
+          </p>
+        </div>
+
+        <div>
+          <label for="gemini_api_key" class="block text-sm font-medium text-base-content mb-1">
+            Google AI API Key <span class="text-base-content/40 font-normal">(Gemini - free tier)</span>
+          </label>
+          <input
+            type="password"
+            name="gemini_api_key"
+            id="gemini_api_key"
+            placeholder="AIza..."
+            class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            autocomplete="off"
+          />
+          <p :if={@api_keys.gemini && !@api_keys.source} class="text-xs text-base-content/50 mt-1">
+            Using key from GEMINI_API_KEY env var
+          </p>
+          <p class="text-xs text-base-content/40 mt-1">
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              class="text-primary hover:underline"
+            >
+              Get a free Google AI API key
+            </a>
+          </p>
+        </div>
+
+        <div>
+          <label for="groq_api_key" class="block text-sm font-medium text-base-content mb-1">
+            Groq API Key <span class="text-base-content/40 font-normal">(for voice, optional)</span>
+          </label>
+          <input
+            type="password"
+            name="groq_api_key"
+            id="groq_api_key"
+            placeholder="gsk_..."
+            class="w-full px-3 py-2 bg-base-200 border border-base-300 text-base-content placeholder:text-base-content/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            autocomplete="off"
+          />
+          <p :if={@api_keys.groq && !@api_keys.source} class="text-xs text-base-content/50 mt-1">
+            Using key from GROQ_API_KEY env var
+          </p>
+          <p class="text-xs text-base-content/40 mt-1">
+            <a
+              href="https://console.groq.com/keys"
+              target="_blank"
+              class="text-primary hover:underline"
+            >
+              Create a free Groq API key
+            </a>
+          </p>
+        </div>
+
+        <div class="flex gap-2">
+          <button
+            type="submit"
+            class="flex-1 px-4 py-2 bg-primary text-primary-content rounded-lg hover:bg-primary/80"
+          >
+            Save
+          </button>
+        </div>
+      </form>
+
+      <div
+        :if={@current_key && @api_keys.source == :session}
+        class="mt-4 pt-4 border-t border-base-300"
+      >
+        <form action={~p"/settings/api-key"} method="post">
+          <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+          <input type="hidden" name="_method" value="delete" />
+          <button
+            type="submit"
+            class="text-sm text-error hover:underline"
+          >
+            Clear saved API keys
+          </button>
+        </form>
+      </div>
+    </.modal>
+    """
+  end
+
+  # ============================================================================
+  # Helper Functions for Templates
+  # ============================================================================
 
   defp message_class(:user), do: "bg-primary/10 rounded-lg p-3 ml-4"
   defp message_class(:assistant), do: "bg-base-300 rounded-lg p-3 mr-4"
