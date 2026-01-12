@@ -5,7 +5,7 @@ defmodule TodosMcp.Run do
   Sets up the layered handler chain:
   - Command effect → DomainHandler (business logic)
   - Reader effect → CommandContext (tenant isolation)
-  - Query effect → DataAccess.Impl (data access)
+  - Query effect → DataAccess.Ecto (data access)
   - EctoPersist effect → Repo (persistence)
   - Throw effect → error handling
 
@@ -97,14 +97,14 @@ defmodule TodosMcp.Run do
   # Install storage handlers based on mode
   defp with_storage_handlers(comp, :database) do
     comp
-    |> Query.with_handler(%{DataAccess.Impl => :direct})
+    |> Query.with_handler(%{DataAccess.Ecto => :direct})
     |> EctoPersist.with_handler(Repo)
   end
 
   defp with_storage_handlers(comp, :in_memory) do
-    # Redirect DataAccess.Impl requests to InMemoryImpl
+    # Redirect DataAccess.Ecto requests to InMemoryImpl
     comp
-    |> Query.with_handler(%{DataAccess.Impl => {DataAccess.InMemoryImpl, :delegate}})
+    |> Query.with_handler(%{DataAccess.Ecto => {DataAccess.InMemoryImpl, :delegate}})
     |> InMemoryPersist.with_handler()
   end
 

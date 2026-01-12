@@ -88,7 +88,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {{:ok, todo}, calls} =
         run(%UpdateTodo{id: @uuid1, title: "New Title"},
           queries: %{
-            Query.key(DataAccess.Impl, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
+            Query.key(DataAccess.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
               {:ok, existing}
           },
           persist: fn %EctoPersist.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
@@ -117,7 +117,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {{:ok, todo}, calls} =
         run(%ToggleTodo{id: @uuid1},
           queries: %{
-            Query.key(DataAccess.Impl, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
+            Query.key(DataAccess.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
               {:ok, existing}
           },
           persist: fn %EctoPersist.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
@@ -142,7 +142,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {{:ok, deleted}, calls} =
         run(%DeleteTodo{id: @uuid1},
           queries: %{
-            Query.key(DataAccess.Impl, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
+            Query.key(DataAccess.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
               {:ok, existing}
           },
           persist: fn %EctoPersist.Delete{input: s} -> {:ok, s} end
@@ -167,7 +167,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, todo} =
         run(%GetTodo{id: @uuid1},
           queries: %{
-            Query.key(DataAccess.Impl, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
+            Query.key(DataAccess.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
               {:ok, existing}
           }
         )
@@ -180,7 +180,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       result =
         run(%GetTodo{id: @uuid_not_found},
           queries: %{
-            Query.key(DataAccess.Impl, :get_todo, %{tenant_id: @test_tenant, id: @uuid_not_found}) =>
+            Query.key(DataAccess.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid_not_found}) =>
               {:error, {:not_found, Todo, @uuid_not_found}}
           }
         )
@@ -213,7 +213,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, result} =
         run(%ListTodos{},
           queries: %{
-            Query.key(DataAccess.Impl, :list_todos, %{
+            Query.key(DataAccess.Ecto, :list_todos, %{
               tenant_id: @test_tenant,
               filter: :all,
               sort_by: :inserted_at,
@@ -251,7 +251,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {{:ok, result}, calls} =
         run(%CompleteAll{},
           queries: %{
-            Query.key(DataAccess.Impl, :list_incomplete, %{tenant_id: @test_tenant}) =>
+            Query.key(DataAccess.Ecto, :list_incomplete, %{tenant_id: @test_tenant}) =>
               {:ok, incomplete_todos}
           },
           persist: fn %EctoPersist.UpdateAll{entries: entries} -> {length(entries), nil} end
@@ -268,7 +268,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {{:ok, result}, calls} =
         run(%CompleteAll{},
           queries: %{
-            Query.key(DataAccess.Impl, :list_incomplete, %{tenant_id: @test_tenant}) => {:ok, []}
+            Query.key(DataAccess.Ecto, :list_incomplete, %{tenant_id: @test_tenant}) => {:ok, []}
           },
           persist: fn %EctoPersist.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
@@ -302,7 +302,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {{:ok, result}, calls} =
         run(%ClearCompleted{},
           queries: %{
-            Query.key(DataAccess.Impl, :list_completed, %{tenant_id: @test_tenant}) =>
+            Query.key(DataAccess.Ecto, :list_completed, %{tenant_id: @test_tenant}) =>
               {:ok, completed_todos}
           },
           persist: fn %EctoPersist.DeleteAll{entries: entries} -> {length(entries), nil} end
@@ -316,7 +316,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {{:ok, result}, calls} =
         run(%ClearCompleted{},
           queries: %{
-            Query.key(DataAccess.Impl, :list_completed, %{tenant_id: @test_tenant}) => {:ok, []}
+            Query.key(DataAccess.Ecto, :list_completed, %{tenant_id: @test_tenant}) => {:ok, []}
           },
           persist: fn %EctoPersist.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
@@ -350,7 +350,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, result} =
         run(%SearchTodos{query: "Buy", limit: 10},
           queries: %{
-            Query.key(DataAccess.Impl, :search_todos, %{
+            Query.key(DataAccess.Ecto, :search_todos, %{
               tenant_id: @test_tenant,
               query: "Buy",
               limit: 10
@@ -366,7 +366,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, result} =
         run(%SearchTodos{query: "nonexistent"},
           queries: %{
-            Query.key(DataAccess.Impl, :search_todos, %{
+            Query.key(DataAccess.Ecto, :search_todos, %{
               tenant_id: @test_tenant,
               query: "nonexistent",
               limit: 20
@@ -383,7 +383,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, result} =
         run(%GetStats{},
           queries: %{
-            Query.key(DataAccess.Impl, :get_stats, %{tenant_id: @test_tenant}) =>
+            Query.key(DataAccess.Ecto, :get_stats, %{tenant_id: @test_tenant}) =>
               {:ok, %{total: 10, active: 6, completed: 4}}
           }
         )
@@ -395,7 +395,7 @@ defmodule TodosMcp.DomainHandlerStubTest do
       {:ok, result} =
         run(%GetStats{},
           queries: %{
-            Query.key(DataAccess.Impl, :get_stats, %{tenant_id: @test_tenant}) =>
+            Query.key(DataAccess.Ecto, :get_stats, %{tenant_id: @test_tenant}) =>
               {:ok, %{total: 0, active: 0, completed: 0}}
           }
         )

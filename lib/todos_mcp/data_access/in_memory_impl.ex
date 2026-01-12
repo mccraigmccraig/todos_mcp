@@ -14,7 +14,7 @@ defmodule TodosMcp.DataAccess.InMemoryImpl do
 
       # Delegation mode (redirect from Impl)
       computation
-      |> Query.with_handler(%{TodosMcp.DataAccess.Impl => {TodosMcp.DataAccess.InMemoryImpl, :delegate}})
+      |> Query.with_handler(%{TodosMcp.DataAccess.Ecto => {TodosMcp.DataAccess.InMemoryImpl, :delegate}})
       |> Comp.run!()
   """
 
@@ -23,7 +23,7 @@ defmodule TodosMcp.DataAccess.InMemoryImpl do
   @store InMemoryStore
 
   @doc """
-  Delegate query from DataAccess.Impl to this module.
+  Delegate query from DataAccess.Ecto to this module.
 
   Called by Query handler when resolver is `{InMemoryImpl, :delegate}`.
   """

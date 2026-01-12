@@ -16,7 +16,7 @@ defmodule TodosMcp.DomainHandler do
       end
       |> Command.with_handler(&DomainHandler.handle/1)
       |> Reader.with_handler(%CommandContext{tenant_id: "tenant-123"}, tag: CommandContext)
-      |> Query.with_handler(%{DataAccess.Impl => :direct})
+      |> Query.with_handler(%{DataAccess.Ecto => :direct})
       |> EctoPersist.with_handler(Repo)
       |> Throw.with_handler()
       |> Comp.run!()
