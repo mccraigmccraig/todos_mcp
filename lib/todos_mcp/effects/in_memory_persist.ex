@@ -1,4 +1,4 @@
-defmodule TodosMcp.InMemoryPersist do
+defmodule TodosMcp.Effects.InMemoryPersist do
   @moduledoc """
   In-memory persistence handler compatible with EctoPersist operations.
 
@@ -8,7 +8,7 @@ defmodule TodosMcp.InMemoryPersist do
   ## Usage
 
       computation
-      |> TodosMcp.InMemoryPersist.with_handler()
+      |> TodosMcp.Effects.InMemoryPersist.with_handler()
       |> Comp.run!()
 
   ## Supported Operations

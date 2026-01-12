@@ -45,7 +45,8 @@ defmodule TodosMcp.Run do
 
   alias Skuld.Comp
   alias Skuld.Effects.{Command, Query, EctoPersist, Fresh, Throw, Reader}
-  alias TodosMcp.{Repo, DomainHandler, DataAccess, InMemoryPersist, CommandContext}
+  alias TodosMcp.{Repo, DomainHandler, DataAccess, CommandContext}
+  alias TodosMcp.Effects.InMemoryPersist
 
   @doc """
   Execute a domain operation (command or query).
