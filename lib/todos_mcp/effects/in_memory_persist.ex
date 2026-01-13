@@ -1,8 +1,8 @@
 defmodule TodosMcp.Effects.InMemoryPersist do
   @moduledoc """
-  In-memory persistence handler compatible with EctoPersist operations.
+  In-memory persistence handler compatible with ChangesetPersist operations.
 
-  Provides an alternative to `EctoPersist.with_handler(Repo)` that stores
+  Provides an alternative to `ChangesetPersist.Ecto.with_handler(Repo)` that stores
   data in `TodosMcp.InMemoryStore` instead of a database.
 
   ## Usage
@@ -22,15 +22,15 @@ defmodule TodosMcp.Effects.InMemoryPersist do
   alias Skuld.Comp
   alias Skuld.Comp.Throw, as: ThrowResult
   alias Skuld.Comp.Types
-  alias Skuld.Effects.EctoPersist
+  alias Skuld.Effects.{ChangesetPersist, ChangeEvent}
   alias TodosMcp.InMemoryStore
 
-  @sig EctoPersist
+  @sig ChangesetPersist
 
   @doc """
   Install the in-memory persist handler for a computation.
 
-  This replaces `EctoPersist.with_handler(Repo)` for in-memory operation.
+  This replaces `ChangesetPersist.Ecto.with_handler(Repo)` for in-memory operation.
   """
   @spec with_handler(Types.computation()) :: Types.computation()
   def with_handler(comp) do
@@ -38,7 +38,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
   end
 
   @doc false
-  def handle(%EctoPersist.Insert{input: input, opts: _opts}, env, k) do
+  def handle(%ChangesetPersist.Insert{input: input, opts: _opts}, env, k) do
     changeset = extract_changeset(input)
 
     if changeset.valid? do
@@ -50,7 +50,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%EctoPersist.Update{input: input, opts: _opts}, env, k) do
+  def handle(%ChangesetPersist.Update{input: input, opts: _opts}, env, k) do
     changeset = extract_changeset(input)
 
     if changeset.valid? do
@@ -62,7 +62,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%EctoPersist.Upsert{input: input, opts: _opts}, env, k) do
+  def handle(%ChangesetPersist.Upsert{input: input, opts: _opts}, env, k) do
     changeset = extract_changeset(input)
 
     if changeset.valid? do
@@ -82,7 +82,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%EctoPersist.Delete{input: input, opts: _opts}, env, k) do
+  def handle(%ChangesetPersist.Delete{input: input, opts: _opts}, env, k) do
     struct = extract_struct(input)
 
     case InMemoryStore.delete(struct.id) do
@@ -91,7 +91,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%EctoPersist.InsertAll{entries: entries, opts: opts}, env, k) do
+  def handle(%ChangesetPersist.InsertAll{entries: entries, opts: opts}, env, k) do
     results =
       Enum.map(entries, fn entry ->
         changeset = extract_changeset(entry)
@@ -116,7 +116,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%EctoPersist.UpdateAll{entries: entries, opts: opts}, env, k) do
+  def handle(%ChangesetPersist.UpdateAll{entries: entries, opts: opts}, env, k) do
     # Check for query-based update
     case Keyword.get(opts, :query) do
       nil when entries == [] ->
@@ -153,7 +153,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%EctoPersist.UpsertAll{entries: entries, opts: opts}, env, k) do
+  def handle(%ChangesetPersist.UpsertAll{entries: entries, opts: opts}, env, k) do
     results =
       Enum.map(entries, fn entry ->
         changeset = extract_changeset(entry)
@@ -183,7 +183,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%EctoPersist.DeleteAll{entries: entries, opts: opts}, env, k) do
+  def handle(%ChangesetPersist.DeleteAll{entries: entries, opts: opts}, env, k) do
     results =
       Enum.map(entries, fn entry ->
         struct = extract_struct(entry)
@@ -203,7 +203,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
   end
 
   # Extract changeset from various input types
-  defp extract_changeset(%EctoPersist.EctoEvent{changeset: cs}), do: cs
+  defp extract_changeset(%ChangeEvent{changeset: cs}), do: cs
   defp extract_changeset(%Ecto.Changeset{} = cs), do: cs
 
   defp extract_changeset(%{__struct__: _} = struct) do
@@ -217,7 +217,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
   end
 
   # Extract struct from various input types
-  defp extract_struct(%EctoPersist.EctoEvent{changeset: cs}), do: Ecto.Changeset.apply_changes(cs)
+  defp extract_struct(%ChangeEvent{changeset: cs}), do: Ecto.Changeset.apply_changes(cs)
   defp extract_struct(%Ecto.Changeset{} = cs), do: Ecto.Changeset.apply_changes(cs)
   defp extract_struct(%{__struct__: _} = struct), do: struct
 end

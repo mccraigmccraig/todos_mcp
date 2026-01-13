@@ -4,7 +4,7 @@ defmodule TodosMcp.Todos.Handlers do
 
   Handles all domain operations using Skuld effects:
   - Repository (via Query effect) for reads
-  - EctoPersist for writes
+  - ChangesetPersist for writes
   - Reader (CommandContext) for tenant isolation
   - EventAccumulator for domain events (future)
 
@@ -17,7 +17,7 @@ defmodule TodosMcp.Todos.Handlers do
       |> Command.with_handler(&Todos.Handlers.handle/1)
       |> Reader.with_handler(%CommandContext{tenant_id: "tenant-123"}, tag: CommandContext)
       |> Query.with_handler(%{Todos.Repository.Ecto => :direct})
-      |> EctoPersist.with_handler(Repo)
+      |> ChangesetPersist.Ecto.with_handler(Repo)
       |> Throw.with_handler()
       |> Comp.run!()
   """
@@ -26,7 +26,7 @@ defmodule TodosMcp.Todos.Handlers do
 
   alias TodosMcp.CommandContext
   alias TodosMcp.Todos.{Todo, Repository}
-  alias Skuld.Effects.{EctoPersist, Fresh, Reader}
+  alias Skuld.Effects.{ChangesetPersist, Fresh, Reader}
 
   alias TodosMcp.Todos.Commands.{
     CreateTodo,
@@ -63,7 +63,7 @@ defmodule TodosMcp.Todos.Handlers do
     }
 
     changeset = Todo.changeset(%Todo{}, attrs)
-    todo <- EctoPersist.insert(changeset)
+    todo <- ChangesetPersist.insert(changeset)
     {:ok, todo}
   end
 
@@ -83,7 +83,7 @@ defmodule TodosMcp.Todos.Handlers do
       |> Map.new()
 
     changeset = Todo.changeset(todo, attrs)
-    updated <- EctoPersist.update(changeset)
+    updated <- ChangesetPersist.update(changeset)
     {:ok, updated}
   end
 
@@ -91,14 +91,14 @@ defmodule TodosMcp.Todos.Handlers do
     ctx <- Reader.ask(CommandContext)
     todo <- Repository.get_todo!(ctx.tenant_id, id)
     changeset = Todo.changeset(todo, %{completed: not todo.completed})
-    updated <- EctoPersist.update(changeset)
+    updated <- ChangesetPersist.update(changeset)
     {:ok, updated}
   end
 
   defcomp handle(%DeleteTodo{id: id}) do
     ctx <- Reader.ask(CommandContext)
     todo <- Repository.get_todo!(ctx.tenant_id, id)
-    result <- EctoPersist.delete(todo)
+    result <- ChangesetPersist.delete(todo)
     result
   end
 
@@ -106,14 +106,14 @@ defmodule TodosMcp.Todos.Handlers do
     ctx <- Reader.ask(CommandContext)
     todos <- Repository.list_incomplete(ctx.tenant_id)
     changesets = Enum.map(todos, &Todo.changeset(&1, %{completed: true}))
-    {count, _} <- EctoPersist.update_all(Todo, changesets)
+    {count, _} <- ChangesetPersist.update_all(Todo, changesets)
     {:ok, %{updated: count}}
   end
 
   defcomp handle(%ClearCompleted{}) do
     ctx <- Reader.ask(CommandContext)
     todos <- Repository.list_completed(ctx.tenant_id)
-    {count, _} <- EctoPersist.delete_all(Todo, todos)
+    {count, _} <- ChangesetPersist.delete_all(Todo, todos)
     {:ok, %{deleted: count}}
   end
 

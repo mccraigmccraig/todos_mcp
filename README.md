@@ -43,7 +43,7 @@ defcomp handle(%CreateTodo{} = cmd) do
   ctx <- Reader.ask(CommandContext)
   id <- Fresh.fresh_uuid()
   changeset = Todo.changeset(%Todo{}, %{id: id, tenant_id: ctx.tenant_id, ...})
-  todo <- EctoPersist.insert(changeset)
+  todo <- ChangesetPersist.insert(changeset)
   {:ok, todo}
 end
 
@@ -95,7 +95,7 @@ defcomp handle(%ToggleTodo{id: id}) do
   ctx <- Reader.ask(CommandContext)        # "I need the command context"
   todo <- Repository.get_todo!(ctx.tenant_id, id)  # "I need this todo"
   changeset = Todo.changeset(todo, %{completed: not todo.completed})
-  updated <- EctoPersist.update(changeset)  # "Persist this change"
+  updated <- ChangesetPersist.update(changeset)  # "Persist this change"
   {:ok, updated}
 end
 ```
@@ -121,7 +121,7 @@ end
 
 # Storage handlers vary by mode:
 # :database -> Query.with_handler(%{Repository.Ecto => :direct})
-#           -> EctoPersist.with_handler(Repo)
+#           -> ChangesetPersist.Ecto.with_handler(Repo)
 # :in_memory -> Query.with_handler(%{Repository.Ecto => {Repository.InMemory, :delegate}})
 #            -> InMemoryPersist.with_handler()
 ```
