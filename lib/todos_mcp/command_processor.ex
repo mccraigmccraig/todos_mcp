@@ -37,16 +37,19 @@ defmodule TodosMcp.CommandProcessor do
 
   use Skuld.Syntax
 
-  alias Skuld.Effects.Command
+  require Logger
+
   alias Skuld.Effects.ChangesetPersist
+  alias Skuld.Effects.Command
   alias Skuld.Effects.Fresh
   alias Skuld.Effects.Query
   alias Skuld.Effects.Reader
+  alias Skuld.Effects.State
   alias TodosMcp.CommandContext
+  alias TodosMcp.Effects.InMemoryPersist
   alias TodosMcp.Repo
   alias TodosMcp.Todos.Handlers
   alias TodosMcp.Todos.Repository
-  alias TodosMcp.Effects.InMemoryPersist
 
   @doc """
   Build a command processor computation.
@@ -65,6 +68,7 @@ defmodule TodosMcp.CommandProcessor do
     context = get_context(opts)
 
     command_loop()
+    |> State.with_handler(%{})
     |> Command.with_handler(&Handlers.handle/1)
     |> Reader.with_handler(context, tag: CommandContext)
     |> with_storage_handlers(mode)
@@ -85,11 +89,35 @@ defmodule TodosMcp.CommandProcessor do
 
   defp process_command_loop(operation) do
     comp do
+      # Execute the command
       result <- Command.execute(operation)
+
+      # Update command counts
+      counts <- State.get()
+      cmd_module = operation.__struct__
+      new_counts = Map.update(counts, cmd_module, 1, &(&1 + 1))
+      _ <- State.put(new_counts)
+
+      # Log the counts
+      _ <- log_counts(new_counts)
+
       # Yield the result - the resume value is the next command
       next_cmd <- Skuld.Effects.Yield.yield(result)
       process_command_loop(next_cmd)
     end
+  end
+
+  defp log_counts(counts) do
+    formatted =
+      counts
+      |> Enum.map(fn {mod, count} ->
+        short_name = mod |> Module.split() |> List.last()
+        "#{short_name}: #{count}"
+      end)
+      |> Enum.join(", ")
+
+    Logger.info("[CommandProcessor] Command counts: #{formatted}")
+    Skuld.Comp.return(:ok)
   end
 
   defp get_context(opts) do
