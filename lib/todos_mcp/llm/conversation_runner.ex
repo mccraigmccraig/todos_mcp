@@ -43,8 +43,8 @@ defmodule TodosMcp.Llm.ConversationRunner do
   alias TodosMcp.Llm.{ConversationComp, Claude}
   alias TodosMcp.Effects.LlmCall
   alias TodosMcp.Effects.LlmCall.{ClaudeHandler, GeminiHandler, GroqHandler}
+  alias Skuld.AsyncRunner
   alias TodosMcp.Mcp.Tools
-  alias TodosMcp.Run
 
   @providers [:claude, :gemini, :groq]
 
@@ -85,6 +85,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
   - `:model` - Model to use (optional, provider-specific default).
   - `:tools` - Tool definitions (optional, defaults to all MCP tools).
   - `:tenant_id` - Tenant ID for tool execution (optional).
+  - `:cmd_runner` - AsyncRunner for command execution (optional, uses Run.execute if not provided).
 
   Returns `{:ok, runner}` when ready for user input.
   """
@@ -93,6 +94,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
     api_key = Keyword.fetch!(opts, :api_key)
     provider = Keyword.get(opts, :provider, :claude)
     tenant_id = Keyword.get(opts, :tenant_id, "default")
+    cmd_runner = Keyword.get(opts, :cmd_runner)
     system = Keyword.get(opts, :system)
     model = Keyword.get(opts, :model)
 
@@ -106,6 +108,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
       api_key: api_key,
       provider: provider,
       tenant_id: tenant_id,
+      cmd_runner: cmd_runner,
       system: system,
       model: model,
       tools: tools
@@ -236,7 +239,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
 
       %{type: :execute_tools, tool_uses: tool_requests} ->
         # Execute tools and continue
-        results = execute_tools(tool_requests, runner.config.tenant_id)
+        results = execute_tools(tool_requests, runner.config.cmd_runner)
         {next_result, env} = resume.(results)
         log = EffectLogger.get_log(env)
         process_yields(next_result, %{runner | log: log})
@@ -294,12 +297,12 @@ defmodule TodosMcp.Llm.ConversationRunner do
     {:error, reason, runner}
   end
 
-  # Execute tool requests through the domain stack
-  defp execute_tools(tool_requests, tenant_id) do
-    Enum.map(tool_requests, &execute_single_tool(&1, tenant_id))
+  # Execute tool requests through the command processor (or Run.execute as fallback)
+  defp execute_tools(tool_requests, cmd_runner) do
+    Enum.map(tool_requests, &execute_single_tool(&1, cmd_runner))
   end
 
-  defp execute_single_tool(%{name: name, input: input}, tenant_id) do
+  defp execute_single_tool(%{name: name, input: input}, cmd_runner) do
     case Tools.find_module(name) do
       nil ->
         {:error, "Unknown tool: #{name}"}
@@ -307,10 +310,26 @@ defmodule TodosMcp.Llm.ConversationRunner do
       module ->
         try do
           operation = module.from_json(input)
-          Run.execute(operation, tenant_id: tenant_id)
+          execute_operation(operation, cmd_runner)
         rescue
           e -> {:error, Exception.message(e)}
         end
+    end
+  end
+
+  # Execute via cmd_runner if available, otherwise fall back to Run.execute
+  defp execute_operation(operation, nil) do
+    # No cmd_runner provided, use Run.execute directly
+    TodosMcp.Run.execute(operation)
+  end
+
+  defp execute_operation(operation, cmd_runner) do
+    # Use the cmd_runner via resume_sync - response comes back to this process
+    case AsyncRunner.resume_sync(cmd_runner, operation) do
+      {:yield, result} -> result
+      {:throw, error} -> {:error, error}
+      {:error, :timeout} -> {:error, :timeout}
+      other -> {:error, {:unexpected_response, other}}
     end
   end
 

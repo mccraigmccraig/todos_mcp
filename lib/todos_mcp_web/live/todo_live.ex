@@ -85,8 +85,8 @@ defmodule TodosMcpWeb.TodoLive do
     api_keys = build_api_keys(session)
     current_key = ApiKeysState.current_key(api_keys)
 
-    # Initialize conversation runner
-    runner = start_runner_with_key(current_key, api_keys.selected_provider, tenant_id)
+    # Initialize conversation runner (passes cmd_runner for tool execution)
+    runner = start_runner_with_key(current_key, api_keys.selected_provider, tenant_id, cmd_runner)
 
     {:ok,
      assign(socket,
@@ -151,10 +151,12 @@ defmodule TodosMcpWeb.TodoLive do
     }
   end
 
-  defp start_runner_with_key(nil, _provider, _tenant_id), do: nil
+  defp start_runner_with_key(nil, _provider, _tenant_id, _cmd_runner), do: nil
 
-  defp start_runner_with_key(api_key, provider, tenant_id) do
-    case ConversationRunner.start(api_key: api_key, provider: provider, tenant_id: tenant_id) do
+  defp start_runner_with_key(api_key, provider, tenant_id, cmd_runner) do
+    opts = [api_key: api_key, provider: provider, tenant_id: tenant_id, cmd_runner: cmd_runner]
+
+    case ConversationRunner.start(opts) do
       {:ok, runner} -> runner
       {:error, _reason} -> nil
     end
@@ -196,7 +198,12 @@ defmodule TodosMcpWeb.TodoLive do
     current_key = ApiKeysState.current_key(api_keys)
 
     runner =
-      start_runner_with_key(current_key, api_keys.selected_provider, socket.assigns.tenant_id)
+      start_runner_with_key(
+        current_key,
+        api_keys.selected_provider,
+        socket.assigns.tenant_id,
+        socket.assigns.cmd_runner
+      )
 
     {:noreply, update_chat(socket, fn c -> %{c | runner: runner, messages: [], error: nil} end)}
   end
@@ -205,7 +212,14 @@ defmodule TodosMcpWeb.TodoLive do
     provider = String.to_existing_atom(provider_str)
     api_keys = socket.assigns.api_keys
     new_key = ApiKeysState.key_for(api_keys, provider)
-    runner = start_runner_with_key(new_key, provider, socket.assigns.tenant_id)
+
+    runner =
+      start_runner_with_key(
+        new_key,
+        provider,
+        socket.assigns.tenant_id,
+        socket.assigns.cmd_runner
+      )
 
     socket =
       socket
