@@ -77,37 +77,33 @@ defmodule TodosMcp.CommandProcessor do
 
   # The main command processing loop
   # Flow: yield(:ready) → resume(cmd1) → yield(result1) → resume(cmd2) → yield(result2) → ...
-  defp command_loop do
-    comp do
-      # Yield :ready to signal we're waiting for a command
-      cmd <- Skuld.Effects.Yield.yield(:ready)
-      process_command_loop(cmd)
-    end
+  defcompp command_loop do
+    # Yield :ready to signal we're waiting for a command
+    cmd <- Skuld.Effects.Yield.yield(:ready)
+    process_command_loop(cmd)
   end
 
-  defp process_command_loop(:stop), do: Skuld.Comp.return(:stopped)
+  defcompp(process_command_loop(:stop), do: :stopped)
 
-  defp process_command_loop(operation) do
-    comp do
-      # Execute the command
-      result <- Command.execute(operation)
+  defcompp process_command_loop(operation) do
+    # Execute the command
+    result <- Command.execute(operation)
 
-      # Update command counts
-      counts <- State.get()
-      cmd_module = operation.__struct__
-      new_counts = Map.update(counts, cmd_module, 1, &(&1 + 1))
-      _ <- State.put(new_counts)
+    # Update command counts
+    counts <- State.get()
+    cmd_module = operation.__struct__
+    new_counts = Map.update(counts, cmd_module, 1, &(&1 + 1))
+    _ <- State.put(new_counts)
 
-      # Log the counts
-      _ <- log_counts(new_counts)
+    # Log the counts
+    _ <- log_counts(new_counts)
 
-      # Yield the result - the resume value is the next command
-      next_cmd <- Skuld.Effects.Yield.yield(result)
-      process_command_loop(next_cmd)
-    end
+    # Yield the result - the resume value is the next command
+    next_cmd <- Skuld.Effects.Yield.yield(result)
+    process_command_loop(next_cmd)
   end
 
-  defp log_counts(counts) do
+  defcompp log_counts(counts) do
     formatted =
       counts
       |> Enum.map(fn {mod, count} ->
@@ -116,8 +112,8 @@ defmodule TodosMcp.CommandProcessor do
       end)
       |> Enum.join(", ")
 
-    Logger.info("[CommandProcessor] Command counts: #{formatted}")
-    Skuld.Comp.return(:ok)
+    _ = Logger.info("[CommandProcessor] Command counts: #{formatted}")
+    :ok
   end
 
   defp get_context(opts) do

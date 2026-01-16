@@ -20,11 +20,11 @@ defmodule TodosMcp.Llm.ConversationComp do
 
   ## Yield Protocol
 
-  | Yield Value | Direction | Purpose |
-  |-------------|-----------|---------|
-  | `:await_user_input` | out → in | Wait for user message (returns String) |
-  | `{:execute_tools, [tool_use]}` | out → in | Execute tools (returns [result]) |
-  | `{:response, text, tool_execs}` | out | Notify UI of response |
+  | Yield Value                     | Direction | Purpose                                |
+  |---------------------------------|-----------|----------------------------------------|
+  | `:await_user_input`             | out → in  | Wait for user message (returns String) |
+  | `{:execute_tools, [tool_use]}`  | out → in  | Execute tools (returns [result])       |
+  | `{:response, text, tool_execs}` | out       | Notify UI of response                  |
 
   ## Usage
 
