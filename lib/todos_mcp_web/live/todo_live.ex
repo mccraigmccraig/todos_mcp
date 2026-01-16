@@ -2,8 +2,8 @@ defmodule TodosMcpWeb.TodoLive do
   @moduledoc """
   LiveView for the todo list interface with LLM chat sidebar.
 
-  All actions dispatch through TodosMcp.Run which handles the
-  Skuld effect handler stack.
+  Commands are processed through a long-lived `CommandProcessor` AsyncRunner,
+  which keeps the Skuld effect handler stack alive across multiple operations.
 
   ## State Structure
 
@@ -13,14 +13,21 @@ defmodule TodosMcpWeb.TodoLive do
   - `@chat` - Conversation state, messages, voice recording
   - `@log_modal` - Effect log modal state
   - `@tenant_id` - Tenant identifier (string)
+  - `@cmd_runner` - AsyncRunner for command processing
   - `@sidebar_open` - Sidebar visibility (boolean)
   """
   use TodosMcpWeb, :live_view
 
-  alias TodosMcp.Run
+  alias Skuld.AsyncRunner
+  alias TodosMcp.CommandProcessor
   alias TodosMcp.Llm.ConversationRunner
-  alias TodosMcp.Todos.Commands.{CreateTodo, ToggleTodo, DeleteTodo, ClearCompleted, CompleteAll}
-  alias TodosMcp.Todos.Queries.{ListTodos, GetStats}
+  alias TodosMcp.Todos.Commands.ClearCompleted
+  alias TodosMcp.Todos.Commands.CompleteAll
+  alias TodosMcp.Todos.Commands.CreateTodo
+  alias TodosMcp.Todos.Commands.DeleteTodo
+  alias TodosMcp.Todos.Commands.ToggleTodo
+  alias TodosMcp.Todos.Queries.GetStats
+  alias TodosMcp.Todos.Queries.ListTodos
   alias TodosMcp.Effects.Transcribe
   alias TodosMcp.Effects.Transcribe.GroqHandler
 
@@ -66,8 +73,13 @@ defmodule TodosMcpWeb.TodoLive do
   def mount(_params, session, socket) do
     tenant_id = session["tenant_id"] || "default"
 
-    {:ok, todo_items} = Run.execute(%ListTodos{}, tenant_id: tenant_id)
-    {:ok, stats} = Run.execute(%GetStats{}, tenant_id: tenant_id)
+    # Start command processor for this tenant
+    processor = CommandProcessor.build(tenant_id: tenant_id)
+    {:ok, cmd_runner, {:yield, :ready}} = AsyncRunner.start_sync(processor, tag: :cmd)
+
+    # Load initial data via the command processor
+    {:yield, {:ok, todo_items}} = AsyncRunner.resume_sync(cmd_runner, %ListTodos{})
+    {:yield, {:ok, stats}} = AsyncRunner.resume_sync(cmd_runner, %GetStats{})
 
     # Build API keys state
     api_keys = build_api_keys(session)
@@ -79,6 +91,7 @@ defmodule TodosMcpWeb.TodoLive do
     {:ok,
      assign(socket,
        tenant_id: tenant_id,
+       cmd_runner: cmd_runner,
        sidebar_open: true,
        todos: %TodosState{items: todo_items, stats: stats},
        api_keys: api_keys,
@@ -164,12 +177,7 @@ defmodule TodosMcpWeb.TodoLive do
         end)
 
       runner = socket.assigns.chat.runner
-      pid = self()
-
-      Task.start(fn ->
-        result = ConversationRunner.send_message(runner, message)
-        send(pid, {:llm_response, result})
-      end)
+      start_llm_call(runner, message)
 
       {:noreply, socket}
     else
@@ -257,12 +265,7 @@ defmodule TodosMcpWeb.TodoLive do
       format_atom = String.to_existing_atom(format)
 
       if format_atom in @allowed_audio_formats do
-        pid = self()
-
-        Task.start(fn ->
-          result = transcribe_audio(audio_data, format_atom, groq_key)
-          send(pid, {:transcription_result, result})
-        end)
+        start_transcription(audio_data, format_atom, groq_key)
 
         {:noreply, socket}
       else
@@ -352,7 +355,7 @@ defmodule TodosMcpWeb.TodoLive do
   # ============================================================================
 
   @impl true
-  def handle_info({:llm_response, result}, socket) do
+  def handle_info({:llm, :result, result}, socket) do
     socket =
       case result do
         {:ok, response, updated_runner} ->
@@ -382,7 +385,11 @@ defmodule TodosMcpWeb.TodoLive do
     {:noreply, socket}
   end
 
-  def handle_info({:transcription_result, result}, socket) do
+  def handle_info({:llm, :throw, error}, socket) do
+    {:noreply, update_chat(socket, fn c -> %{c | loading: false, error: format_error(error)} end)}
+  end
+
+  def handle_info({:transcribe, :result, result}, socket) do
     socket = update_chat(socket, fn c -> %{c | is_transcribing: false} end)
 
     case result do
@@ -398,12 +405,7 @@ defmodule TodosMcpWeb.TodoLive do
             end)
 
           runner = socket.assigns.chat.runner
-          pid = self()
-
-          Task.start(fn ->
-            result = ConversationRunner.send_message(runner, text)
-            send(pid, {:llm_response, result})
-          end)
+          start_llm_call(runner, text)
 
           {:noreply, socket}
         else
@@ -423,6 +425,18 @@ defmodule TodosMcpWeb.TodoLive do
     end
   end
 
+  def handle_info({:transcribe, :throw, error}, socket) do
+    socket = update_chat(socket, fn c -> %{c | is_transcribing: false} end)
+
+    {:noreply, update_chat(socket, fn c -> %{c | error: format_transcription_error(error)} end)}
+  end
+
+  # AsyncRunner monitors its spawned processes and sends :DOWN when they exit.
+  # This is expected behavior - just ignore the message.
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
+    {:noreply, socket}
+  end
+
   # ============================================================================
   # Private Helpers
   # ============================================================================
@@ -436,21 +450,33 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   defp run_cmd(socket, operation) do
-    Run.execute(operation, tenant_id: socket.assigns.tenant_id)
+    {:yield, result} = AsyncRunner.resume_sync(socket.assigns.cmd_runner, operation)
+    result
   end
 
-  defp transcribe_audio(audio_data, format, api_key) do
-    alias Skuld.Comp
+  # Start an LLM call in a separate process via AsyncRunner
+  # Result arrives as {:llm, :result, result} message
+  defp start_llm_call(runner, message) do
+    # Wrap the send_message call in a computation (must pass env through)
+    llm_comp = fn env, k ->
+      result = ConversationRunner.send_message(runner, message)
+      k.(result, env)
+    end
 
-    try do
+    # Start async - result will come via {:llm, :result, ...} message
+    {:ok, _async_runner} = AsyncRunner.start(llm_comp, tag: :llm, link: false)
+    :ok
+  end
+
+  # Start transcription in a separate process via AsyncRunner
+  # Result arrives as {:transcribe, :result, result} or {:transcribe, :throw, error}
+  defp start_transcription(audio_data, format, api_key) do
+    transcribe_comp =
       Transcribe.transcribe(audio_data, format: format)
       |> Transcribe.with_handler(GroqHandler.handler(api_key: api_key))
-      |> Comp.run!()
-    rescue
-      e -> {:error, {:exception, Exception.message(e)}}
-    catch
-      kind, reason -> {:error, {kind, reason}}
-    end
+
+    {:ok, _async_runner} = AsyncRunner.start(transcribe_comp, tag: :transcribe, link: false)
+    :ok
   end
 
   defp format_error({:api_error, status, body}) when is_binary(body) do
