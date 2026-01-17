@@ -1,11 +1,12 @@
 defmodule TodosMcp.Llm.ConversationRunner do
   @moduledoc """
-  Orchestrates the conversation computation, handling Yield boundaries.
+  Orchestrates the conversation computation using AsyncRunner.
 
   This module is the "Run" equivalent for conversations - it:
-  - Sets up the LlmCall handler with Claude configuration
+  - Sets up the LlmCall handler with provider configuration
+  - Uses AsyncRunner to manage the conversation process
   - Handles Yield effects at boundaries
-  - Executes tools through the domain stack when requested
+  - Executes tools through the command processor when requested
   - Returns control to the caller for user input and responses
 
   ## Yield Protocol
@@ -15,7 +16,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
   | Yield Value | Handling |
   |-------------|----------|
   | `:await_user_input` | Return to caller, wait for `send_message/2` |
-  | `{:execute_tools, requests}` | Execute via Run, resume automatically |
+  | `{:execute_tools, requests}` | Execute via cmd_runner, resume automatically |
   | `{:response, text, executions}` | Return to caller, then resume |
   | `{:error, reason}` | Return to caller, then resume |
 
@@ -37,21 +38,24 @@ defmodule TodosMcp.Llm.ConversationRunner do
       end
   """
 
-  alias Skuld.Comp
-  alias Skuld.Comp.Suspend
-  alias Skuld.Effects.{EffectLogger, Reader, State, Yield, Throw}
-  alias TodosMcp.Llm.{ConversationComp, Claude}
-  alias TodosMcp.Effects.LlmCall
-  alias TodosMcp.Effects.LlmCall.{ClaudeHandler, GeminiHandler, GroqHandler}
   alias Skuld.AsyncRunner
+  alias Skuld.Effects.EffectLogger
+  alias Skuld.Effects.Reader
+  alias Skuld.Effects.State
+  alias TodosMcp.Llm.ConversationComp
+  alias TodosMcp.Llm.Claude
+  alias TodosMcp.Effects.LlmCall
+  alias TodosMcp.Effects.LlmCall.ClaudeHandler
+  alias TodosMcp.Effects.LlmCall.GeminiHandler
+  alias TodosMcp.Effects.LlmCall.GroqHandler
   alias TodosMcp.Mcp.Tools
 
   @providers [:claude, :gemini, :groq]
 
-  defstruct [:resume_fn, :config, :log]
+  defstruct [:async_runner, :config, :log]
 
   @type t :: %__MODULE__{
-          resume_fn: (term() -> {term(), Skuld.Comp.Types.env()}),
+          async_runner: AsyncRunner.t(),
           config: map(),
           log: EffectLogger.Log.t() | nil
         }
@@ -80,7 +84,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
   ## Options
 
   - `:api_key` - Required. API key for the selected provider.
-  - `:provider` - LLM provider (`:claude` or `:gemini`). Default: `:claude`.
+  - `:provider` - LLM provider (`:claude`, `:gemini`, or `:groq`). Default: `:claude`.
   - `:system` - System prompt (optional, has sensible default).
   - `:model` - Model to use (optional, provider-specific default).
   - `:tools` - Tool definitions (optional, defaults to all MCP tools).
@@ -126,30 +130,31 @@ defmodule TodosMcp.Llm.ConversationRunner do
     # Build the computation with handlers
     # Reader is outside EffectLogger (config lookups not logged)
     # State is inside EffectLogger (state changes are logged for cold resume)
-    # Only capture State effect data in snapshots (not Reader config)
+    # EffectLogger decorates suspends with the log via suspend.data
     comp =
       ConversationComp.run()
       |> State.with_handler(initial_state, tag: ConversationComp)
       |> EffectLogger.with_logging(state_keys: [State.state_key(ConversationComp)])
       |> Reader.with_handler(conversation_config, tag: ConversationComp)
       |> LlmCall.with_handler(llm_handler(config))
-      |> Yield.with_handler()
-      |> Throw.with_handler()
 
-    # Run until first yield (should be :await_user_input)
-    case Comp.run(comp) do
-      {%Suspend{value: :await_user_input, resume: resume}, env} ->
-        log = EffectLogger.get_log(env)
-        {:ok, %__MODULE__{resume_fn: resume, config: config, log: log}}
+    # Start with AsyncRunner - it adds Yield and Throw handlers
+    case AsyncRunner.start_sync(comp, tag: :llm, link: false) do
+      {:ok, async_runner, {:yield, :await_user_input, data}} ->
+        log = extract_log(data)
+        {:ok, %__MODULE__{async_runner: async_runner, config: config, log: log}}
 
-      {%Suspend{value: other}, _env} ->
+      {:ok, _async_runner, {:yield, other, _data}} ->
         {:error, {:unexpected_yield, other}}
 
-      {%Comp.Throw{error: error}, _env} ->
+      {:ok, _async_runner, {:throw, error}} ->
         {:error, error}
 
-      {value, _env} ->
+      {:ok, _async_runner, {:result, value}} ->
         {:error, {:unexpected_completion, value}}
+
+      {:error, :timeout} ->
+        {:error, :timeout}
     end
   end
 
@@ -164,18 +169,12 @@ defmodule TodosMcp.Llm.ConversationRunner do
   """
   @spec send_message(t(), String.t()) ::
           {:ok, response(), t()} | {:error, term(), t()}
-  def send_message(%__MODULE__{resume_fn: resume} = runner, message) do
-    # Resume with user message, catching any exceptions
-    try do
-      {result, env} = resume.(message)
-      log = EffectLogger.get_log(env)
-      process_yields(result, %{runner | log: log})
-    rescue
-      e ->
-        {:error, {:exception, Exception.message(e)}, runner}
-    catch
-      kind, reason ->
-        {:error, {kind, reason}, runner}
+  def send_message(%__MODULE__{} = runner, message) do
+    case AsyncRunner.resume_sync(runner.async_runner, message, timeout: 60_000) do
+      {:yield, value, data} -> process_yield(value, data, runner)
+      {:result, value} -> {:error, {:conversation_ended, value}, runner}
+      {:throw, error} -> {:error, error, runner}
+      {:error, :timeout} -> {:error, :timeout, runner}
     end
   end
 
@@ -230,72 +229,70 @@ defmodule TodosMcp.Llm.ConversationRunner do
   end
 
   # Process yields until we get a response or await_user_input
-  defp process_yields(%Suspend{value: yield_value, resume: resume}, runner) do
-    case yield_value do
-      :await_user_input ->
-        # Shouldn't happen immediately after sending a message
-        # but handle it gracefully by returning an empty response
-        {:ok, %{text: "", tool_executions: []}, %{runner | resume_fn: resume}}
+  defp process_yield(:await_user_input, data, runner) do
+    # Shouldn't happen immediately after sending a message
+    # but handle it gracefully by returning an empty response
+    log = extract_log(data)
+    {:ok, %{text: "", tool_executions: []}, %{runner | log: log}}
+  end
 
-      %{type: :execute_tools, tool_uses: tool_requests} ->
-        # Execute tools and continue
-        results = execute_tools(tool_requests, runner.config.cmd_runner)
-        {next_result, env} = resume.(results)
-        log = EffectLogger.get_log(env)
-        process_yields(next_result, %{runner | log: log})
+  defp process_yield(%{type: :execute_tools, tool_uses: tool_requests}, _data, runner) do
+    # Execute tools and continue
+    results = execute_tools(tool_requests, runner.config.cmd_runner)
 
-      %{type: :response, text: text, tool_executions: tool_executions} ->
-        # Got a response - resume to get back to await_user_input, then return
-        {next_result, env} = resume.(:ok)
-        log = EffectLogger.get_log(env)
-        finalize_response(next_result, %{runner | log: log}, text, tool_executions)
-
-      %{type: :error, reason: reason} ->
-        # Error occurred - resume to continue, then return error
-        {next_result, env} = resume.(:ok)
-        log = EffectLogger.get_log(env)
-        finalize_error(next_result, %{runner | log: log}, reason)
+    case AsyncRunner.resume_sync(runner.async_runner, results, timeout: 60_000) do
+      {:yield, value, data} -> process_yield(value, data, runner)
+      {:result, value} -> {:error, {:conversation_ended, value}, runner}
+      {:throw, error} -> {:error, error, runner}
+      {:error, :timeout} -> {:error, :timeout, runner}
     end
   end
 
-  defp process_yields(%Comp.Throw{error: error}, runner) do
-    {:error, error, runner}
-  end
-
-  defp process_yields(_value, runner) do
-    # Computation completed (shouldn't happen for conversation loop)
-    {:error, :conversation_ended, runner}
-  end
-
-  # After response yield, ensure we're back at await_user_input
-  defp finalize_response(
-         %Suspend{value: :await_user_input, resume: resume},
-         runner,
-         text,
-         tool_executions
+  defp process_yield(
+         %{type: :response, text: text, tool_executions: tool_executions},
+         data,
+         runner
        ) do
-    response = %{text: text, tool_executions: tool_executions}
-    {:ok, response, %{runner | resume_fn: resume}}
+    # Got a response - resume to get back to await_user_input, then return
+    log = extract_log(data)
+
+    case AsyncRunner.resume_sync(runner.async_runner, :ok, timeout: 5_000) do
+      {:yield, :await_user_input, _data} ->
+        response = %{text: text, tool_executions: tool_executions}
+        {:ok, response, %{runner | log: log}}
+
+      {:yield, other, _data} ->
+        response = %{text: text, tool_executions: tool_executions}
+        {:error, {:unexpected_yield_after_response, other, response}, %{runner | log: log}}
+
+      {:result, value} ->
+        {:error, {:unexpected_result_after_response, value}, %{runner | log: log}}
+
+      {:throw, error} ->
+        {:error, error, %{runner | log: log}}
+
+      {:error, :timeout} ->
+        {:error, :timeout, %{runner | log: log}}
+    end
   end
 
-  defp finalize_response(%Suspend{value: other, resume: _resume}, runner, text, tool_executions) do
-    # Unexpected yield after response - still return what we have
-    response = %{text: text, tool_executions: tool_executions}
-    {:error, {:unexpected_yield_after_response, other, response}, runner}
+  defp process_yield(%{type: :error, reason: reason}, data, runner) do
+    # Error occurred - resume to continue, then return error
+    log = extract_log(data)
+
+    case AsyncRunner.resume_sync(runner.async_runner, :ok, timeout: 5_000) do
+      {:yield, :await_user_input, _data} ->
+        {:error, reason, %{runner | log: log}}
+
+      _other ->
+        {:error, reason, %{runner | log: log}}
+    end
   end
 
-  defp finalize_response(other, runner, _text, _tool_executions) do
-    {:error, {:unexpected_result_after_response, other}, runner}
-  end
-
-  # After error yield, ensure we're back at await_user_input
-  defp finalize_error(%Suspend{value: :await_user_input, resume: resume}, runner, reason) do
-    {:error, reason, %{runner | resume_fn: resume}}
-  end
-
-  defp finalize_error(_other, runner, reason) do
-    {:error, reason, runner}
-  end
+  # Extract log from suspend data (EffectLogger stores it under its module key)
+  defp extract_log(nil), do: nil
+  defp extract_log(data) when is_map(data), do: Map.get(data, EffectLogger)
+  defp extract_log(_), do: nil
 
   # Execute tool requests through the command processor (or Run.execute as fallback)
   defp execute_tools(tool_requests, cmd_runner) do
@@ -326,7 +323,7 @@ defmodule TodosMcp.Llm.ConversationRunner do
   defp execute_operation(operation, cmd_runner) do
     # Use the cmd_runner via resume_sync - response comes back to this process
     case AsyncRunner.resume_sync(cmd_runner, operation) do
-      {:yield, result} -> result
+      {:yield, result, _data} -> result
       {:throw, error} -> {:error, error}
       {:error, :timeout} -> {:error, :timeout}
       other -> {:error, {:unexpected_response, other}}

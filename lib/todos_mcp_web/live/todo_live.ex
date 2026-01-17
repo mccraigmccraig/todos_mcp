@@ -75,11 +75,11 @@ defmodule TodosMcpWeb.TodoLive do
 
     # Start command processor for this tenant
     processor = CommandProcessor.build(tenant_id: tenant_id)
-    {:ok, cmd_runner, {:yield, :ready}} = AsyncRunner.start_sync(processor, tag: :cmd)
+    {:ok, cmd_runner, {:yield, :ready, _data}} = AsyncRunner.start_sync(processor, tag: :cmd)
 
     # Load initial data via the command processor
-    {:yield, {:ok, todo_items}} = AsyncRunner.resume_sync(cmd_runner, %ListTodos{})
-    {:yield, {:ok, stats}} = AsyncRunner.resume_sync(cmd_runner, %GetStats{})
+    {:yield, {:ok, todo_items}, _data} = AsyncRunner.resume_sync(cmd_runner, %ListTodos{})
+    {:yield, {:ok, stats}, _data} = AsyncRunner.resume_sync(cmd_runner, %GetStats{})
 
     # Build API keys state
     api_keys = build_api_keys(session)
@@ -464,7 +464,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   defp run_cmd(socket, operation) do
-    {:yield, result} = AsyncRunner.resume_sync(socket.assigns.cmd_runner, operation)
+    {:yield, result, _data} = AsyncRunner.resume_sync(socket.assigns.cmd_runner, operation)
     result
   end
 
