@@ -19,11 +19,11 @@ defmodule TodosMcp.CommandProcessor do
 
       # Start the processor
       processor = CommandProcessor.build(tenant_id: "tenant-123")
-      {:ok, runner, {:yield, :ready}} = AsyncRunner.start_sync(processor, tag: :cmd)
+      {:ok, runner, {:yield, :ready, _data}} = AsyncRunner.start_sync(processor, tag: :cmd)
 
-      # Execute commands synchronously
-      {:yield, {:ok, todo}} = AsyncRunner.resume_sync(runner, %CreateTodo{title: "Buy milk"})
-      {:yield, {:ok, stats}} = AsyncRunner.resume_sync(runner, %GetStats{})
+      # Execute commands synchronously (data contains any scoped effect decorations)
+      {:yield, {:ok, todo}, _data} = AsyncRunner.resume_sync(runner, %CreateTodo{title: "Buy milk"})
+      {:yield, {:ok, stats}, _data} = AsyncRunner.resume_sync(runner, %GetStats{})
 
       # Cancel when done (or let it be garbage collected)
       AsyncRunner.cancel(runner)
