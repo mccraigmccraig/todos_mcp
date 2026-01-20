@@ -13,8 +13,9 @@ defmodule TodosMcpWeb.TodoLive.State do
   - `LogModalState` - Effect log modal state
   """
 
+  alias Skuld.AsyncRunner
+  alias Skuld.Effects.EffectLogger
   alias TodosMcp.Todos.Todo
-  alias TodosMcp.Llm.ConversationRunner
 
   defmodule TodosState do
     @moduledoc "Todo list state"
@@ -80,7 +81,8 @@ defmodule TodosMcpWeb.TodoLive.State do
               input: "",
               loading: false,
               error: nil,
-              runner: nil,
+              llm_runner: nil,
+              log: nil,
               is_recording: false,
               is_transcribing: false
 
@@ -95,7 +97,8 @@ defmodule TodosMcpWeb.TodoLive.State do
             input: String.t(),
             loading: boolean(),
             error: String.t() | nil,
-            runner: ConversationRunner.t() | nil,
+            llm_runner: AsyncRunner.t() | nil,
+            log: EffectLogger.Log.t() | nil,
             is_recording: boolean(),
             is_transcribing: boolean()
           }
@@ -109,7 +112,7 @@ defmodule TodosMcpWeb.TodoLive.State do
     @doc "Clear the conversation"
     @spec clear(t()) :: t()
     def clear(%__MODULE__{} = chat) do
-      %{chat | messages: [], error: nil}
+      %{chat | messages: [], error: nil, log: nil}
     end
   end
 

@@ -28,39 +28,46 @@ defmodule TodosMcp.Llm.ConversationComp do
 
   ## Usage
 
-  The computation should be run with a ConversationRunner that handles
-  the Yield effects and composes the LlmCall handler.
+  Use `build/1` to create a computation with all handlers installed,
+  then run it with `AsyncRunner`:
 
-  ## Example
-
+      alias Skuld.AsyncRunner
       alias TodosMcp.Llm.ConversationComp
-      alias TodosMcp.Effects.LlmCall
 
-      # Create initial state
-      state = ConversationComp.initial_state(
-        tools: my_tools,
-        system: "You are helpful"
-      )
+      # Build computation with all handlers
+      comp = ConversationComp.build(api_key: "sk-...", provider: :claude)
 
-      # Build computation with handlers
-      comp = ConversationComp.run(state)
-      |> LlmCall.with_handler(ClaudeHandler.handler(api_key: key))
-      |> Yield.with_handler()
+      # Start with AsyncRunner
+      {:ok, runner, {:yield, :await_user_input, _data}} =
+        AsyncRunner.start_sync(comp, tag: :llm, link: false)
 
-      # Run and handle yields (typically done by ConversationRunner)
-      case Comp.run(comp) do
-        {%Suspend{value: :await_user_input, resume: resume}, _env} ->
-          # Provide user input and continue
-          resume.("Hello!")
-        ...
+      # Send user message (async)
+      AsyncRunner.resume(runner, "Hello!")
+
+      # Handle yields in process mailbox
+      receive do
+        {:llm, :yield, %{type: :response, text: text}, _data} ->
+          IO.puts("Assistant: \#{text}")
+          AsyncRunner.resume(runner, :ok)  # Resume to get back to await_user_input
+
+        {:llm, :yield, %{type: :execute_tools, tool_uses: tools}, _data} ->
+          results = execute_tools(tools)
+          AsyncRunner.resume(runner, results)  # Resume with tool results
       end
   """
 
   use Skuld.Syntax
 
-  alias Skuld.Effects.{EffectLogger, Reader, Yield}
+  alias Skuld.Effects.EffectLogger
+  alias Skuld.Effects.Reader
   alias Skuld.Effects.State, as: StateEffect
+  alias Skuld.Effects.Yield
   alias TodosMcp.Effects.LlmCall
+  alias TodosMcp.Effects.LlmCall.ClaudeHandler
+  alias TodosMcp.Effects.LlmCall.GeminiHandler
+  alias TodosMcp.Effects.LlmCall.GroqHandler
+  alias TodosMcp.Llm.Claude
+  alias TodosMcp.Mcp.Tools
 
   # Loop markers for EffectLogger pruning
   defmodule ConversationLoop do
@@ -150,6 +157,83 @@ defmodule TodosMcp.Llm.ConversationComp do
       error_count: 0
     }
   end
+
+  #############################################################################
+  ## Build Computation with Handlers
+  #############################################################################
+
+  @doc """
+  Build a conversation computation with all handlers installed.
+
+  Returns a computation ready to be started with `AsyncRunner.start/2` or
+  `AsyncRunner.start_sync/2`.
+
+  ## Options
+
+  - `:api_key` - Required. API key for the selected provider.
+  - `:provider` - LLM provider (`:claude`, `:gemini`, or `:groq`). Default: `:claude`.
+  - `:system` - System prompt (optional, has sensible default).
+  - `:model` - Model to use (optional, provider-specific default).
+  - `:tools` - Tool definitions (optional, defaults to all MCP tools in Claude format).
+
+  ## Example
+
+      comp = ConversationComp.build(api_key: "sk-...", provider: :claude)
+      {:ok, runner, {:yield, :await_user_input, _}} = AsyncRunner.start_sync(comp, tag: :llm)
+  """
+  @spec build(keyword()) :: Skuld.Comp.Types.computation()
+  def build(opts) do
+    api_key = Keyword.fetch!(opts, :api_key)
+    provider = Keyword.get(opts, :provider, :claude)
+    system = Keyword.get(opts, :system)
+    model = Keyword.get(opts, :model)
+
+    # Get tools in Claude format (GeminiHandler will convert as needed)
+    tools =
+      Keyword.get_lazy(opts, :tools, fn ->
+        Tools.all() |> Claude.convert_tools()
+      end)
+
+    # Build config (constant - via Reader, not logged)
+    conversation_config =
+      initial_config(
+        tools: tools,
+        system: system || @default_system_prompt
+      )
+
+    # Build initial state (mutable - via State, logged)
+    initial_state = initial_state()
+
+    # Build LLM handler based on provider
+    llm_handler = build_llm_handler(api_key, provider, system, model, tools)
+
+    # Build the computation with handlers
+    # Reader is outside EffectLogger (config lookups not logged)
+    # State is inside EffectLogger (state changes are logged for cold resume)
+    # EffectLogger decorates suspends with the log via suspend.data
+    run()
+    |> StateEffect.with_handler(initial_state, tag: __MODULE__)
+    |> EffectLogger.with_logging(state_keys: [StateEffect.state_key(__MODULE__)])
+    |> Reader.with_handler(conversation_config, tag: __MODULE__)
+    |> LlmCall.with_handler(llm_handler)
+  end
+
+  defp build_llm_handler(api_key, provider, system, model, tools) do
+    base_opts =
+      [api_key: api_key]
+      |> maybe_add(:system, system)
+      |> maybe_add(:model, model)
+      |> maybe_add(:tools, tools)
+
+    case provider do
+      :gemini -> GeminiHandler.handler(base_opts)
+      :groq -> GroqHandler.handler(base_opts)
+      _claude -> ClaudeHandler.handler(base_opts)
+    end
+  end
+
+  defp maybe_add(opts, _key, nil), do: opts
+  defp maybe_add(opts, key, value), do: Keyword.put(opts, key, value)
 
   #############################################################################
   ## Main Conversation Loop
