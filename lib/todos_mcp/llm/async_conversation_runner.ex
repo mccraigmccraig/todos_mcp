@@ -1,6 +1,6 @@
 defmodule TodosMcp.Llm.AsyncConversationRunner do
   @moduledoc """
-  Manages an LLM conversation via AsyncRunner.
+  Manages an LLM conversation via AsyncComputation.
 
   Provides functions to start, resume, and cancel conversations, plus
   `handle_info/3` to process yield messages from the conversation computation.
@@ -25,7 +25,7 @@ defmodule TodosMcp.Llm.AsyncConversationRunner do
       end
   """
 
-  alias Skuld.AsyncRunner
+  alias Skuld.AsyncComputation
   alias Skuld.Effects.EffectLogger
   alias TodosMcp.Llm.ConversationComp
   alias TodosMcp.Mcp.Tools
@@ -41,7 +41,7 @@ defmodule TodosMcp.Llm.AsyncConversationRunner do
   - `:api_key` - Required. API key for the LLM provider.
   - `:provider` - LLM provider (`:claude`, `:gemini`, `:groq`). Default: `:claude`.
   """
-  @spec start(keyword()) :: {AsyncRunner.t() | nil, EffectLogger.Log.t() | nil}
+  @spec start(keyword()) :: {AsyncComputation.t() | nil, EffectLogger.Log.t() | nil}
   def start(opts) do
     api_key = Keyword.get(opts, :api_key)
     provider = Keyword.get(opts, :provider, :claude)
@@ -49,7 +49,7 @@ defmodule TodosMcp.Llm.AsyncConversationRunner do
     if api_key do
       comp = ConversationComp.build(api_key: api_key, provider: provider)
 
-      case AsyncRunner.start_sync(comp, tag: :llm, link: false) do
+      case AsyncComputation.start_sync(comp, tag: :llm, link: false) do
         {:ok, llm_runner, {:yield, :await_user_input, data}} ->
           {llm_runner, extract_log(data)}
 
@@ -69,24 +69,24 @@ defmodule TodosMcp.Llm.AsyncConversationRunner do
 
   This is async - responses come via handle_info.
   """
-  @spec resume(AsyncRunner.t() | nil, term()) :: :ok
+  @spec resume(AsyncComputation.t() | nil, term()) :: :ok
   def resume(nil, _value), do: :ok
-  def resume(llm_runner, value), do: AsyncRunner.resume(llm_runner, value)
+  def resume(llm_runner, value), do: AsyncComputation.resume(llm_runner, value)
 
   @doc """
   Cancel the conversation runner.
   """
-  @spec cancel(AsyncRunner.t() | nil) :: :ok
+  @spec cancel(AsyncComputation.t() | nil) :: :ok
   def cancel(nil), do: :ok
-  def cancel(llm_runner), do: AsyncRunner.cancel(llm_runner)
+  def cancel(llm_runner), do: AsyncComputation.cancel(llm_runner)
 
   @doc """
-  Handle :llm messages from the conversation AsyncRunner.
+  Handle :llm messages from the conversation AsyncComputation.
 
   ## Callbacks (in opts)
 
-  - `:get_runner` - `(socket) -> AsyncRunner.t() | nil` - get the llm_runner from socket
-  - `:get_cmd_runner` - `(socket) -> AsyncRunner.t() | nil` - get the cmd_runner for tool execution
+  - `:get_runner` - `(socket) -> AsyncComputation.t() | nil` - get the llm_runner from socket
+  - `:get_cmd_runner` - `(socket) -> AsyncComputation.t() | nil` - get the cmd_runner for tool execution
   - `:update_chat` - `(socket, (chat -> chat)) -> socket` - update chat state with a transform function
   - `:on_tool_execution` - `(socket) -> socket` - called after tools are executed (e.g., reload data)
 
@@ -234,7 +234,7 @@ defmodule TodosMcp.Llm.AsyncConversationRunner do
   end
 
   defp execute_operation(operation, cmd_runner) do
-    case AsyncRunner.resume_sync(cmd_runner, operation) do
+    case AsyncComputation.resume_sync(cmd_runner, operation) do
       {:yield, result, _data} -> result
       {:throw, error} -> {:error, error}
       {:error, :timeout} -> {:error, :timeout}

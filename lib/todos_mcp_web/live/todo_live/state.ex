@@ -13,7 +13,7 @@ defmodule TodosMcpWeb.TodoLive.State do
   - `LogModalState` - Effect log modal state
   """
 
-  alias Skuld.AsyncRunner
+  alias Skuld.AsyncComputation
   alias Skuld.Effects.EffectLogger
   alias TodosMcp.Todos.Todo
 
@@ -97,7 +97,7 @@ defmodule TodosMcpWeb.TodoLive.State do
             input: String.t(),
             loading: boolean(),
             error: String.t() | nil,
-            llm_runner: AsyncRunner.t() | nil,
+            llm_runner: AsyncComputation.t() | nil,
             log: EffectLogger.Log.t() | nil,
             is_recording: boolean(),
             is_transcribing: boolean()

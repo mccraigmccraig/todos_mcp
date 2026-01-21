@@ -29,30 +29,30 @@ defmodule TodosMcp.Llm.ConversationComp do
   ## Usage
 
   Use `build/1` to create a computation with all handlers installed,
-  then run it with `AsyncRunner`:
+  then run it with `AsyncComputation`:
 
-      alias Skuld.AsyncRunner
+      alias Skuld.AsyncComputation
       alias TodosMcp.Llm.ConversationComp
 
       # Build computation with all handlers
       comp = ConversationComp.build(api_key: "sk-...", provider: :claude)
 
-      # Start with AsyncRunner
+      # Start with AsyncComputation
       {:ok, runner, {:yield, :await_user_input, _data}} =
-        AsyncRunner.start_sync(comp, tag: :llm, link: false)
+        AsyncComputation.start_sync(comp, tag: :llm, link: false)
 
       # Send user message (async)
-      AsyncRunner.resume(runner, "Hello!")
+      AsyncComputation.resume(runner, "Hello!")
 
       # Handle yields in process mailbox
       receive do
         {:llm, :yield, %{type: :response, text: text}, _data} ->
           IO.puts("Assistant: \#{text}")
-          AsyncRunner.resume(runner, :ok)  # Resume to get back to await_user_input
+          AsyncComputation.resume(runner, :ok)  # Resume to get back to await_user_input
 
         {:llm, :yield, %{type: :execute_tools, tool_uses: tools}, _data} ->
           results = execute_tools(tools)
-          AsyncRunner.resume(runner, results)  # Resume with tool results
+          AsyncComputation.resume(runner, results)  # Resume with tool results
       end
   """
 
@@ -165,8 +165,8 @@ defmodule TodosMcp.Llm.ConversationComp do
   @doc """
   Build a conversation computation with all handlers installed.
 
-  Returns a computation ready to be started with `AsyncRunner.start/2` or
-  `AsyncRunner.start_sync/2`.
+  Returns a computation ready to be started with `AsyncComputation.start/2` or
+  `AsyncComputation.start_sync/2`.
 
   ## Options
 
@@ -179,7 +179,7 @@ defmodule TodosMcp.Llm.ConversationComp do
   ## Example
 
       comp = ConversationComp.build(api_key: "sk-...", provider: :claude)
-      {:ok, runner, {:yield, :await_user_input, _}} = AsyncRunner.start_sync(comp, tag: :llm)
+      {:ok, runner, {:yield, :await_user_input, _}} = AsyncComputation.start_sync(comp, tag: :llm)
   """
   @spec build(keyword()) :: Skuld.Comp.Types.computation()
   def build(opts) do

@@ -1,6 +1,6 @@
 defmodule TodosMcp.CommandProcessor do
   @moduledoc """
-  A long-lived command processor that can be used with AsyncRunner.
+  A long-lived command processor that can be used with AsyncComputation.
 
   Instead of creating a new computation for each command (like `Run.execute/2`),
   CommandProcessor builds a computation that:
@@ -15,24 +15,24 @@ defmodule TodosMcp.CommandProcessor do
   This keeps the handler stack alive across multiple commands, which can be
   useful for connection pooling, caching, or maintaining state.
 
-  ## Usage with AsyncRunner
+  ## Usage with AsyncComputation
 
       # Start the processor
       processor = CommandProcessor.build(tenant_id: "tenant-123")
-      {:ok, runner, {:yield, :ready, _data}} = AsyncRunner.start_sync(processor, tag: :cmd)
+      {:ok, runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
       # Execute commands synchronously (data contains any scoped effect decorations)
-      {:yield, {:ok, todo}, _data} = AsyncRunner.resume_sync(runner, %CreateTodo{title: "Buy milk"})
-      {:yield, {:ok, stats}, _data} = AsyncRunner.resume_sync(runner, %GetStats{})
+      {:yield, {:ok, todo}, _data} = AsyncComputation.resume_sync(runner, %CreateTodo{title: "Buy milk"})
+      {:yield, {:ok, stats}, _data} = AsyncComputation.resume_sync(runner, %GetStats{})
 
       # Cancel when done (or let it be garbage collected)
-      AsyncRunner.cancel(runner)
+      AsyncComputation.cancel(runner)
 
   ## Stopping the Processor
 
   Send the `:stop` atom to gracefully stop the processor:
 
-      {:result, :stopped} = AsyncRunner.resume_sync(runner, :stop)
+      {:result, :stopped} = AsyncComputation.resume_sync(runner, :stop)
   """
 
   use Skuld.Syntax
@@ -60,7 +60,7 @@ defmodule TodosMcp.CommandProcessor do
   - `:context` - CommandContext struct with tenant_id
   - `:tenant_id` - Shorthand for context (creates CommandContext)
 
-  Returns a computation ready to be started with `AsyncRunner.start_sync/2`.
+  Returns a computation ready to be started with `AsyncComputation.start_sync/2`.
   """
   @spec build(keyword()) :: Skuld.Comp.Types.computation()
   def build(opts \\ []) do

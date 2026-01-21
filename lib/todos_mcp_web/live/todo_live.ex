@@ -2,7 +2,7 @@ defmodule TodosMcpWeb.TodoLive do
   @moduledoc """
   LiveView for the todo list interface with LLM chat sidebar.
 
-  Commands are processed through a long-lived `CommandProcessor` AsyncRunner,
+  Commands are processed through a long-lived `CommandProcessor` AsyncComputation,
   which keeps the Skuld effect handler stack alive across multiple operations.
 
   ## State Structure
@@ -13,12 +13,12 @@ defmodule TodosMcpWeb.TodoLive do
   - `@chat` - Conversation state, messages, voice recording
   - `@log_modal` - Effect log modal state
   - `@tenant_id` - Tenant identifier (string)
-  - `@cmd_runner` - AsyncRunner for command processing
+  - `@cmd_runner` - AsyncComputation for command processing
   - `@sidebar_open` - Sidebar visibility (boolean)
   """
   use TodosMcpWeb, :live_view
 
-  alias Skuld.AsyncRunner
+  alias Skuld.AsyncComputation
   alias TodosMcp.CommandProcessor
   alias TodosMcp.Effects.Transcribe
   alias TodosMcp.Effects.Transcribe.GroqHandler
@@ -78,11 +78,11 @@ defmodule TodosMcpWeb.TodoLive do
 
     # Start command processor for this tenant
     processor = CommandProcessor.build(tenant_id: tenant_id)
-    {:ok, cmd_runner, {:yield, :ready, _data}} = AsyncRunner.start_sync(processor, tag: :cmd)
+    {:ok, cmd_runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
     # Load initial data via the command processor
-    {:yield, {:ok, todo_items}, _data} = AsyncRunner.resume_sync(cmd_runner, %ListTodos{})
-    {:yield, {:ok, stats}, _data} = AsyncRunner.resume_sync(cmd_runner, %GetStats{})
+    {:yield, {:ok, todo_items}, _data} = AsyncComputation.resume_sync(cmd_runner, %ListTodos{})
+    {:yield, {:ok, stats}, _data} = AsyncComputation.resume_sync(cmd_runner, %GetStats{})
 
     # Build API keys state
     api_keys = build_api_keys(session)
@@ -419,7 +419,7 @@ defmodule TodosMcpWeb.TodoLive do
     {:noreply, update_chat(socket, fn c -> %{c | error: format_transcription_error(error)} end)}
   end
 
-  # AsyncRunner monitors its spawned processes and sends :DOWN when they exit.
+  # AsyncComputation monitors its spawned processes and sends :DOWN when they exit.
   # This is expected behavior - just ignore the message.
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
     {:noreply, socket}
@@ -438,18 +438,18 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   defp run_cmd(socket, operation) do
-    {:yield, result, _data} = AsyncRunner.resume_sync(socket.assigns.cmd_runner, operation)
+    {:yield, result, _data} = AsyncComputation.resume_sync(socket.assigns.cmd_runner, operation)
     result
   end
 
-  # Start transcription in a separate process via AsyncRunner
+  # Start transcription in a separate process via AsyncComputation
   # Result arrives as {:transcribe, :result, result} or {:transcribe, :throw, error}
   defp start_transcription(audio_data, format, api_key) do
     transcribe_comp =
       Transcribe.transcribe(audio_data, format: format)
       |> Transcribe.with_handler(GroqHandler.handler(api_key: api_key))
 
-    {:ok, _async_runner} = AsyncRunner.start(transcribe_comp, tag: :transcribe, link: false)
+    {:ok, _async_runner} = AsyncComputation.start(transcribe_comp, tag: :transcribe, link: false)
     :ok
   end
 
