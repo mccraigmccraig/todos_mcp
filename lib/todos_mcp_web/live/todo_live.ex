@@ -19,13 +19,10 @@ defmodule TodosMcpWeb.TodoLive do
   use TodosMcpWeb, :live_view
 
   alias Skuld.AsyncRunner
-  alias Skuld.Effects.EffectLogger
   alias TodosMcp.CommandProcessor
   alias TodosMcp.Effects.Transcribe
   alias TodosMcp.Effects.Transcribe.GroqHandler
-  alias TodosMcp.Llm.ConversationComp
-  alias TodosMcp.Mcp.Tools
-  alias TodosMcp.Run
+  alias TodosMcp.Llm.AsyncConversationRunner
   alias TodosMcp.Todos.Commands.ClearCompleted
   alias TodosMcp.Todos.Commands.CompleteAll
   alias TodosMcp.Todos.Commands.CreateTodo
@@ -91,8 +88,9 @@ defmodule TodosMcpWeb.TodoLive do
     api_keys = build_api_keys(session)
     current_key = ApiKeysState.current_key(api_keys)
 
-    # Initialize conversation (using AsyncRunner directly)
-    {llm_runner, log} = start_conversation(current_key, api_keys.selected_provider)
+    # Initialize conversation
+    {llm_runner, log} =
+      AsyncConversationRunner.start(api_key: current_key, provider: api_keys.selected_provider)
 
     {:ok,
      assign(socket,
@@ -157,23 +155,6 @@ defmodule TodosMcpWeb.TodoLive do
     }
   end
 
-  defp start_conversation(nil, _provider), do: {nil, nil}
-
-  defp start_conversation(api_key, provider) do
-    comp = ConversationComp.build(api_key: api_key, provider: provider)
-
-    case AsyncRunner.start_sync(comp, tag: :llm, link: false) do
-      {:ok, llm_runner, {:yield, :await_user_input, data}} ->
-        {llm_runner, extract_log(data)}
-
-      {:ok, _runner, _other} ->
-        {nil, nil}
-
-      {:error, _reason} ->
-        {nil, nil}
-    end
-  end
-
   # ============================================================================
   # Handle Events - Chat
   # ============================================================================
@@ -191,7 +172,7 @@ defmodule TodosMcpWeb.TodoLive do
         end)
 
       # Resume the conversation with the user message (async)
-      AsyncRunner.resume(socket.assigns.chat.llm_runner, message)
+      AsyncConversationRunner.resume(socket.assigns.chat.llm_runner, message)
 
       {:noreply, socket}
     else
@@ -210,12 +191,11 @@ defmodule TodosMcpWeb.TodoLive do
     current_key = ApiKeysState.current_key(api_keys)
 
     # Cancel old runner if exists
-    if socket.assigns.chat.llm_runner do
-      AsyncRunner.cancel(socket.assigns.chat.llm_runner)
-    end
+    AsyncConversationRunner.cancel(socket.assigns.chat.llm_runner)
 
     # Start fresh conversation
-    {llm_runner, log} = start_conversation(current_key, api_keys.selected_provider)
+    {llm_runner, log} =
+      AsyncConversationRunner.start(api_key: current_key, provider: api_keys.selected_provider)
 
     {:noreply,
      update_chat(socket, fn c ->
@@ -229,12 +209,10 @@ defmodule TodosMcpWeb.TodoLive do
     new_key = ApiKeysState.key_for(api_keys, provider)
 
     # Cancel old runner if exists
-    if socket.assigns.chat.llm_runner do
-      AsyncRunner.cancel(socket.assigns.chat.llm_runner)
-    end
+    AsyncConversationRunner.cancel(socket.assigns.chat.llm_runner)
 
     # Start fresh conversation with new provider
-    {llm_runner, log} = start_conversation(new_key, provider)
+    {llm_runner, log} = AsyncConversationRunner.start(api_key: new_key, provider: provider)
 
     socket =
       socket
@@ -252,17 +230,10 @@ defmodule TodosMcpWeb.TodoLive do
   # ============================================================================
 
   def handle_event("show_log", _params, socket) do
-    {log_inspect, log_json} =
-      case socket.assigns.chat.log do
-        nil ->
-          {"no log", "null"}
+    log = socket.assigns.chat.log
 
-        log ->
-          {
-            format_log_inspect(log),
-            format_log_json(log)
-          }
-      end
+    log_inspect = AsyncConversationRunner.format_log_inspect(log)
+    log_json = AsyncConversationRunner.format_log_json(log)
 
     {:noreply, update_log_modal(socket, fn l -> %{l | inspect: log_inspect, json: log_json} end)}
   end
@@ -385,88 +356,25 @@ defmodule TodosMcpWeb.TodoLive do
   # Handle Info
   # ============================================================================
 
-  # Handle LLM yield: await_user_input - conversation is ready for next message
+  # Delegate all LLM messages to AsyncConversationRunner
   @impl true
-  def handle_info({:llm, :yield, :await_user_input, data}, socket) do
-    log = extract_log(data)
-    {:noreply, update_chat(socket, fn c -> %{c | log: log, loading: false} end)}
+  def handle_info({:llm, _, _} = msg, socket) do
+    AsyncConversationRunner.handle_info(msg, socket,
+      get_runner: fn s -> s.assigns.chat.llm_runner end,
+      get_cmd_runner: fn s -> s.assigns.cmd_runner end,
+      update_chat: &update_chat/2,
+      on_tool_execution: &reload_todos/1
+    )
   end
 
-  # Handle LLM yield: execute_tools - execute tools and resume
-  def handle_info(
-        {:llm, :yield, %{type: :execute_tools, tool_uses: tool_requests}, _data},
-        socket
-      ) do
-    results = execute_tools(tool_requests, socket.assigns.cmd_runner)
-
-    # Resume the conversation with tool results
-    AsyncRunner.resume(socket.assigns.chat.llm_runner, results)
-
-    {:noreply, socket}
-  end
-
-  # Handle LLM yield: response - show assistant response and resume
-  def handle_info(
-        {:llm, :yield, %{type: :response, text: text, tool_executions: tool_executions}, data},
-        socket
-      ) do
-    log = extract_log(data)
-
-    assistant_msg = %{
-      role: :assistant,
-      content: text,
-      tool_executions: tool_executions
-    }
-
-    socket =
-      if tool_executions != [] do
-        reload_todos(socket)
-      else
-        socket
-      end
-
-    socket =
-      update_chat(socket, fn c ->
-        %{c | log: log, messages: c.messages ++ [assistant_msg]}
-      end)
-
-    # Resume to get back to await_user_input
-    AsyncRunner.resume(socket.assigns.chat.llm_runner, :ok)
-
-    {:noreply, socket}
-  end
-
-  # Handle LLM yield: error - show error and resume
-  def handle_info({:llm, :yield, %{type: :error, reason: reason}, data}, socket) do
-    log = extract_log(data)
-
-    socket =
-      update_chat(socket, fn c ->
-        %{c | log: log, loading: false, error: format_error(reason)}
-      end)
-
-    # Resume to continue the conversation loop
-    AsyncRunner.resume(socket.assigns.chat.llm_runner, :ok)
-
-    {:noreply, socket}
-  end
-
-  # Handle LLM throw - unrecoverable error
-  def handle_info({:llm, :throw, error}, socket) do
-    {:noreply, update_chat(socket, fn c -> %{c | loading: false, error: format_error(error)} end)}
-  end
-
-  # Handle LLM result - conversation ended (shouldn't happen normally)
-  def handle_info({:llm, :result, _value}, socket) do
-    {:noreply,
-     update_chat(socket, fn c ->
-       %{c | loading: false, error: "Conversation ended unexpectedly"}
-     end)}
-  end
-
-  # Handle LLM stopped - runner was cancelled
-  def handle_info({:llm, :stopped, _reason}, socket) do
-    {:noreply, socket}
+  # Handle 4-element LLM yield tuples
+  def handle_info({:llm, _, _, _} = msg, socket) do
+    AsyncConversationRunner.handle_info(msg, socket,
+      get_runner: fn s -> s.assigns.chat.llm_runner end,
+      get_cmd_runner: fn s -> s.assigns.cmd_runner end,
+      update_chat: &update_chat/2,
+      on_tool_execution: &reload_todos/1
+    )
   end
 
   def handle_info({:transcribe, :result, result}, socket) do
@@ -485,7 +393,7 @@ defmodule TodosMcpWeb.TodoLive do
             end)
 
           # Resume the conversation with the transcribed text
-          AsyncRunner.resume(socket.assigns.chat.llm_runner, text)
+          AsyncConversationRunner.resume(socket.assigns.chat.llm_runner, text)
 
           {:noreply, socket}
         else
@@ -534,73 +442,6 @@ defmodule TodosMcpWeb.TodoLive do
     result
   end
 
-  # Extract log from suspend data (EffectLogger stores it under its module key)
-  defp extract_log(nil), do: nil
-  defp extract_log(data) when is_map(data), do: Map.get(data, EffectLogger)
-  defp extract_log(_), do: nil
-
-  # Execute tool requests through the command processor
-  defp execute_tools(tool_requests, cmd_runner) do
-    Enum.map(tool_requests, &execute_single_tool(&1, cmd_runner))
-  end
-
-  defp execute_single_tool(%{name: name, input: input}, cmd_runner) do
-    case Tools.find_module(name) do
-      nil ->
-        {:error, "Unknown tool: #{name}"}
-
-      module ->
-        try do
-          operation = module.from_json(input)
-          execute_operation(operation, cmd_runner)
-        rescue
-          e -> {:error, Exception.message(e)}
-        end
-    end
-  end
-
-  # Execute via cmd_runner if available, otherwise fall back to Run.execute
-  defp execute_operation(operation, nil) do
-    Run.execute(operation)
-  end
-
-  defp execute_operation(operation, cmd_runner) do
-    case AsyncRunner.resume_sync(cmd_runner, operation) do
-      {:yield, result, _data} -> result
-      {:throw, error} -> {:error, error}
-      {:error, :timeout} -> {:error, :timeout}
-      other -> {:error, {:unexpected_response, other}}
-    end
-  end
-
-  # Format log for display
-  defp format_log_inspect(nil), do: "nil"
-
-  defp format_log_inspect(log) do
-    log
-    |> EffectLogger.Log.finalize()
-    |> inspect(pretty: true, limit: :infinity, printable_limit: :infinity)
-  end
-
-  defp format_log_json(nil), do: "null"
-
-  defp format_log_json(log) do
-    try do
-      log
-      |> EffectLogger.Log.finalize()
-      |> Jason.encode!(pretty: true)
-    rescue
-      e ->
-        Jason.encode!(
-          %{
-            error: "Failed to serialize log to JSON",
-            message: Exception.message(e)
-          },
-          pretty: true
-        )
-    end
-  end
-
   # Start transcription in a separate process via AsyncRunner
   # Result arrives as {:transcribe, :result, result} or {:transcribe, :throw, error}
   defp start_transcription(audio_data, format, api_key) do
@@ -611,18 +452,6 @@ defmodule TodosMcpWeb.TodoLive do
     {:ok, _async_runner} = AsyncRunner.start(transcribe_comp, tag: :transcribe, link: false)
     :ok
   end
-
-  defp format_error({:api_error, status, body}) when is_binary(body) do
-    "API error (#{status}): #{body}"
-  end
-
-  defp format_error({:api_error, status, body}) when is_map(body) do
-    "API error (#{status}): #{inspect(body["error"]["message"] || body)}"
-  end
-
-  defp format_error({:request_failed, reason}), do: "Request failed: #{inspect(reason)}"
-  defp format_error(:max_iterations_exceeded), do: "Too many tool calls. Please try again."
-  defp format_error(reason), do: "Error: #{inspect(reason)}"
 
   defp format_transcription_error({:api_error, status, body}) when is_binary(body) do
     "Transcription error (#{status}): #{body}"
