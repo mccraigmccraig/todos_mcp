@@ -22,7 +22,7 @@ defmodule TodosMcpWeb.TodoLive do
   alias TodosMcp.CommandProcessor
   alias TodosMcp.Effects.Transcribe
   alias TodosMcp.Effects.Transcribe.GroqHandler
-  alias TodosMcp.Llm.AsyncConversationRunner
+  alias TodosMcp.Llm.AsyncConversation
   alias TodosMcp.Todos.Commands.ClearCompleted
   alias TodosMcp.Todos.Commands.CompleteAll
   alias TodosMcp.Todos.Commands.CreateTodo
@@ -90,7 +90,7 @@ defmodule TodosMcpWeb.TodoLive do
 
     # Initialize conversation
     {llm_runner, log} =
-      AsyncConversationRunner.start(api_key: current_key, provider: api_keys.selected_provider)
+      AsyncConversation.start(api_key: current_key, provider: api_keys.selected_provider)
 
     {:ok,
      assign(socket,
@@ -172,7 +172,7 @@ defmodule TodosMcpWeb.TodoLive do
         end)
 
       # Resume the conversation with the user message (async)
-      AsyncConversationRunner.resume(socket.assigns.chat.llm_runner, message)
+      AsyncConversation.resume(socket.assigns.chat.llm_runner, message)
 
       {:noreply, socket}
     else
@@ -191,11 +191,11 @@ defmodule TodosMcpWeb.TodoLive do
     current_key = ApiKeysState.current_key(api_keys)
 
     # Cancel old runner if exists
-    AsyncConversationRunner.cancel(socket.assigns.chat.llm_runner)
+    AsyncConversation.cancel(socket.assigns.chat.llm_runner)
 
     # Start fresh conversation
     {llm_runner, log} =
-      AsyncConversationRunner.start(api_key: current_key, provider: api_keys.selected_provider)
+      AsyncConversation.start(api_key: current_key, provider: api_keys.selected_provider)
 
     {:noreply,
      update_chat(socket, fn c ->
@@ -209,10 +209,10 @@ defmodule TodosMcpWeb.TodoLive do
     new_key = ApiKeysState.key_for(api_keys, provider)
 
     # Cancel old runner if exists
-    AsyncConversationRunner.cancel(socket.assigns.chat.llm_runner)
+    AsyncConversation.cancel(socket.assigns.chat.llm_runner)
 
     # Start fresh conversation with new provider
-    {llm_runner, log} = AsyncConversationRunner.start(api_key: new_key, provider: provider)
+    {llm_runner, log} = AsyncConversation.start(api_key: new_key, provider: provider)
 
     socket =
       socket
@@ -232,8 +232,8 @@ defmodule TodosMcpWeb.TodoLive do
   def handle_event("show_log", _params, socket) do
     log = socket.assigns.chat.log
 
-    log_inspect = AsyncConversationRunner.format_log_inspect(log)
-    log_json = AsyncConversationRunner.format_log_json(log)
+    log_inspect = AsyncConversation.format_log_inspect(log)
+    log_json = AsyncConversation.format_log_json(log)
 
     {:noreply, update_log_modal(socket, fn l -> %{l | inspect: log_inspect, json: log_json} end)}
   end
@@ -356,10 +356,10 @@ defmodule TodosMcpWeb.TodoLive do
   # Handle Info
   # ============================================================================
 
-  # Delegate all LLM messages to AsyncConversationRunner
+  # Delegate all LLM messages to AsyncConversation
   @impl true
   def handle_info({:llm, _, _} = msg, socket) do
-    AsyncConversationRunner.handle_info(msg, socket,
+    AsyncConversation.handle_info(msg, socket,
       get_runner: fn s -> s.assigns.chat.llm_runner end,
       get_cmd_runner: fn s -> s.assigns.cmd_runner end,
       update_chat: &update_chat/2,
@@ -369,7 +369,7 @@ defmodule TodosMcpWeb.TodoLive do
 
   # Handle 4-element LLM yield tuples
   def handle_info({:llm, _, _, _} = msg, socket) do
-    AsyncConversationRunner.handle_info(msg, socket,
+    AsyncConversation.handle_info(msg, socket,
       get_runner: fn s -> s.assigns.chat.llm_runner end,
       get_cmd_runner: fn s -> s.assigns.cmd_runner end,
       update_chat: &update_chat/2,
@@ -393,7 +393,7 @@ defmodule TodosMcpWeb.TodoLive do
             end)
 
           # Resume the conversation with the transcribed text
-          AsyncConversationRunner.resume(socket.assigns.chat.llm_runner, text)
+          AsyncConversation.resume(socket.assigns.chat.llm_runner, text)
 
           {:noreply, socket}
         else

@@ -1,4 +1,4 @@
-defmodule TodosMcp.Llm.AsyncConversationRunner do
+defmodule TodosMcp.Llm.AsyncConversation do
   @moduledoc """
   Manages an LLM conversation via AsyncComputation.
 
@@ -8,15 +8,15 @@ defmodule TodosMcp.Llm.AsyncConversationRunner do
   ## Usage in LiveView
 
       # In mount
-      {llm_runner, log} = AsyncConversationRunner.start(api_key: key, provider: :claude)
+      {llm_runner, log} = AsyncConversation.start(api_key: key, provider: :claude)
       assign(socket, llm_runner: llm_runner, log: log)
 
       # Send a message
-      AsyncConversationRunner.resume(socket.assigns.llm_runner, message)
+      AsyncConversation.resume(socket.assigns.llm_runner, message)
 
       # Handle all :llm messages with a single clause
       def handle_info({:llm, _, _} = msg, socket) do
-        AsyncConversationRunner.handle_info(msg, socket,
+        AsyncConversation.handle_info(msg, socket,
           get_runner: fn s -> s.assigns.chat.llm_runner end,
           get_cmd_runner: fn s -> s.assigns.cmd_runner end,
           update_chat: fn s, updates -> update_chat(s, updates) end,
