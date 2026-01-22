@@ -40,7 +40,7 @@ defmodule TodosMcp.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:skuld, path: ".."},
+      {:skuld, "~> 0.1.14"},
       {:phoenix, "~> 1.8.3"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
