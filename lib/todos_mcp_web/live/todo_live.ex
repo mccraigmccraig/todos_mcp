@@ -19,6 +19,8 @@ defmodule TodosMcpWeb.TodoLive do
   use TodosMcpWeb, :live_view
 
   alias Skuld.AsyncComputation
+  alias Skuld.Comp.Suspend
+  alias Skuld.Comp.Throw, as: ThrowStruct
   alias TodosMcp.CommandProcessor
   alias TodosMcp.Effects.Transcribe
   alias TodosMcp.Effects.Transcribe.GroqHandler
@@ -78,11 +80,11 @@ defmodule TodosMcpWeb.TodoLive do
 
     # Start command processor for this tenant
     processor = CommandProcessor.build(tenant_id: tenant_id)
-    {:ok, cmd_runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
+    {:ok, cmd_runner, %Suspend{value: :ready}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
     # Load initial data via the command processor
-    {:yield, {:ok, todo_items}, _data} = AsyncComputation.resume_sync(cmd_runner, %ListTodos{})
-    {:yield, {:ok, stats}, _data} = AsyncComputation.resume_sync(cmd_runner, %GetStats{})
+    %Suspend{value: {:ok, todo_items}} = AsyncComputation.resume_sync(cmd_runner, %ListTodos{})
+    %Suspend{value: {:ok, stats}} = AsyncComputation.resume_sync(cmd_runner, %GetStats{})
 
     # Build API keys state
     api_keys = build_api_keys(session)
@@ -358,7 +360,7 @@ defmodule TodosMcpWeb.TodoLive do
 
   # Delegate all LLM messages to AsyncConversation
   @impl true
-  def handle_info({:llm, _, _} = msg, socket) do
+  def handle_info({AsyncComputation, :llm, _} = msg, socket) do
     AsyncConversation.handle_info(msg, socket,
       get_runner: fn s -> s.assigns.chat.llm_runner end,
       get_cmd_runner: fn s -> s.assigns.cmd_runner end,
@@ -367,20 +369,11 @@ defmodule TodosMcpWeb.TodoLive do
     )
   end
 
-  # Handle 4-element LLM yield tuples
-  def handle_info({:llm, _, _, _} = msg, socket) do
-    AsyncConversation.handle_info(msg, socket,
-      get_runner: fn s -> s.assigns.chat.llm_runner end,
-      get_cmd_runner: fn s -> s.assigns.cmd_runner end,
-      update_chat: &update_chat/2,
-      on_tool_execution: &reload_todos/1
-    )
-  end
-
-  def handle_info({:transcribe, :result, result}, socket) do
+  def handle_info({AsyncComputation, :transcribe, result}, socket) do
     socket = update_chat(socket, fn c -> %{c | is_transcribing: false} end)
 
     case result do
+      # Successful transcription
       {:ok, %{text: text}} when text != "" ->
         chat = socket.assigns.chat
 
@@ -407,16 +400,15 @@ defmodule TodosMcpWeb.TodoLive do
         {:noreply,
          update_chat(socket, fn c -> %{c | error: format_transcription_error(reason)} end)}
 
+      # Throw - unrecoverable error
+      %ThrowStruct{error: error} ->
+        {:noreply,
+         update_chat(socket, fn c -> %{c | error: format_transcription_error(error)} end)}
+
       _other ->
         {:noreply,
          update_chat(socket, fn c -> %{c | error: "Transcription failed: unexpected error"} end)}
     end
-  end
-
-  def handle_info({:transcribe, :throw, error}, socket) do
-    socket = update_chat(socket, fn c -> %{c | is_transcribing: false} end)
-
-    {:noreply, update_chat(socket, fn c -> %{c | error: format_transcription_error(error)} end)}
   end
 
   # AsyncComputation monitors its spawned processes and sends :DOWN when they exit.
@@ -438,7 +430,7 @@ defmodule TodosMcpWeb.TodoLive do
   end
 
   defp run_cmd(socket, operation) do
-    {:yield, result, _data} = AsyncComputation.resume_sync(socket.assigns.cmd_runner, operation)
+    %Suspend{value: result} = AsyncComputation.resume_sync(socket.assigns.cmd_runner, operation)
     result
   end
 

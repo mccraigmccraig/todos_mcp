@@ -26,6 +26,9 @@ defmodule TodosMcp.Llm.AsyncConversation do
   """
 
   alias Skuld.AsyncComputation
+  alias Skuld.Comp.Cancelled
+  alias Skuld.Comp.Suspend
+  alias Skuld.Comp.Throw, as: ThrowStruct
   alias Skuld.Effects.EffectLogger
   alias TodosMcp.Llm.ConversationComp
   alias TodosMcp.Mcp.Tools
@@ -50,7 +53,7 @@ defmodule TodosMcp.Llm.AsyncConversation do
       comp = ConversationComp.build(api_key: api_key, provider: provider)
 
       case AsyncComputation.start_sync(comp, tag: :llm, link: false) do
-        {:ok, llm_runner, {:yield, :await_user_input, data}} ->
+        {:ok, llm_runner, %Suspend{value: :await_user_input, data: data}} ->
           {llm_runner, extract_log(data)}
 
         {:ok, _runner, _other} ->
@@ -104,19 +107,23 @@ defmodule TodosMcp.Llm.AsyncConversation do
 
     case msg do
       # Ready for next user input
-      {:llm, :yield, :await_user_input, data} ->
+      {AsyncComputation, :llm, %Suspend{value: :await_user_input, data: data}} ->
         log = extract_log(data)
         {:noreply, update_chat.(socket, fn c -> %{c | log: log, loading: false} end)}
 
       # Execute tools and resume
-      {:llm, :yield, %{type: :execute_tools, tool_uses: tool_requests}, _data} ->
+      {AsyncComputation, :llm, %Suspend{value: %{type: :execute_tools, tool_uses: tool_requests}}} ->
         cmd_runner = get_cmd_runner.(socket)
         results = execute_tools(tool_requests, cmd_runner)
         resume(get_runner.(socket), results)
         {:noreply, socket}
 
       # Assistant response - show it and resume
-      {:llm, :yield, %{type: :response, text: text, tool_executions: tool_executions}, data} ->
+      {AsyncComputation, :llm,
+       %Suspend{
+         value: %{type: :response, text: text, tool_executions: tool_executions},
+         data: data
+       }} ->
         log = extract_log(data)
 
         assistant_msg = %{
@@ -143,7 +150,7 @@ defmodule TodosMcp.Llm.AsyncConversation do
         {:noreply, socket}
 
       # Error - show it and resume
-      {:llm, :yield, %{type: :error, reason: reason}, data} ->
+      {AsyncComputation, :llm, %Suspend{value: %{type: :error, reason: reason}, data: data}} ->
         log = extract_log(data)
 
         socket =
@@ -155,19 +162,19 @@ defmodule TodosMcp.Llm.AsyncConversation do
         {:noreply, socket}
 
       # Throw - unrecoverable error
-      {:llm, :throw, error} ->
+      {AsyncComputation, :llm, %ThrowStruct{error: error}} ->
         {:noreply,
          update_chat.(socket, fn c -> %{c | loading: false, error: format_error(error)} end)}
 
       # Result - conversation ended (shouldn't happen)
-      {:llm, :result, _value} ->
+      {AsyncComputation, :llm, value} when not is_struct(value) ->
         {:noreply,
          update_chat.(socket, fn c ->
            %{c | loading: false, error: "Conversation ended unexpectedly"}
          end)}
 
-      # Stopped - runner was cancelled
-      {:llm, :stopped, _reason} ->
+      # Cancelled - runner was cancelled
+      {AsyncComputation, :llm, %Cancelled{}} ->
         {:noreply, socket}
     end
   end
@@ -235,8 +242,8 @@ defmodule TodosMcp.Llm.AsyncConversation do
 
   defp execute_operation(operation, cmd_runner) do
     case AsyncComputation.resume_sync(cmd_runner, operation) do
-      {:yield, result, _data} -> result
-      {:throw, error} -> {:error, error}
+      %Suspend{value: result} -> result
+      %ThrowStruct{error: error} -> {:error, error}
       {:error, :timeout} -> {:error, :timeout}
       other -> {:error, {:unexpected_response, other}}
     end

@@ -7,6 +7,7 @@ defmodule TodosMcp.CommandProcessorTest do
   end
 
   alias Skuld.AsyncComputation
+  alias Skuld.Comp.Suspend
   alias TodosMcp.CommandProcessor
   alias TodosMcp.InMemoryStore
   alias TodosMcp.Todos.Commands.CreateTodo
@@ -24,7 +25,7 @@ defmodule TodosMcp.CommandProcessorTest do
     test "starts and yields :ready" do
       processor = CommandProcessor.build(mode: :in_memory)
 
-      {:ok, runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
+      {:ok, runner, %Suspend{value: :ready}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
       # Clean up
       AsyncComputation.cancel(runner)
@@ -32,10 +33,10 @@ defmodule TodosMcp.CommandProcessorTest do
 
     test "executes a command and yields result" do
       processor = CommandProcessor.build(mode: :in_memory)
-      {:ok, runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
+      {:ok, runner, %Suspend{value: :ready}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
       # Send a create command
-      {:yield, {:ok, todo}, _data} =
+      %Suspend{value: {:ok, todo}} =
         AsyncComputation.resume_sync(runner, %CreateTodo{title: "Test todo"})
 
       assert todo.title == "Test todo"
@@ -47,26 +48,26 @@ defmodule TodosMcp.CommandProcessorTest do
 
     test "processes multiple commands in sequence" do
       processor = CommandProcessor.build(mode: :in_memory)
-      {:ok, runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
+      {:ok, runner, %Suspend{value: :ready}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
       # Create first todo
-      {:yield, {:ok, todo1}, _data} =
+      %Suspend{value: {:ok, todo1}} =
         AsyncComputation.resume_sync(runner, %CreateTodo{title: "First"})
 
       assert todo1.title == "First"
 
       # Create second todo
-      {:yield, {:ok, todo2}, _data} =
+      %Suspend{value: {:ok, todo2}} =
         AsyncComputation.resume_sync(runner, %CreateTodo{title: "Second"})
 
       assert todo2.title == "Second"
 
       # List todos
-      {:yield, {:ok, todos}, _data} = AsyncComputation.resume_sync(runner, %ListTodos{})
+      %Suspend{value: {:ok, todos}} = AsyncComputation.resume_sync(runner, %ListTodos{})
       assert length(todos) == 2
 
       # Get stats
-      {:yield, {:ok, stats}, _data} = AsyncComputation.resume_sync(runner, %GetStats{})
+      %Suspend{value: {:ok, stats}} = AsyncComputation.resume_sync(runner, %GetStats{})
       assert stats.total == 2
       assert stats.active == 2
 
@@ -75,28 +76,28 @@ defmodule TodosMcp.CommandProcessorTest do
 
     test "toggle and delete commands" do
       processor = CommandProcessor.build(mode: :in_memory)
-      {:ok, runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
+      {:ok, runner, %Suspend{value: :ready}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
       # Create
-      {:yield, {:ok, todo}, _data} =
+      %Suspend{value: {:ok, todo}} =
         AsyncComputation.resume_sync(runner, %CreateTodo{title: "Toggle me"})
 
       assert todo.completed == false
 
       # Toggle
-      {:yield, {:ok, toggled}, _data} =
+      %Suspend{value: {:ok, toggled}} =
         AsyncComputation.resume_sync(runner, %ToggleTodo{id: todo.id})
 
       assert toggled.completed == true
 
       # Delete
-      {:yield, {:ok, deleted}, _data} =
+      %Suspend{value: {:ok, deleted}} =
         AsyncComputation.resume_sync(runner, %DeleteTodo{id: todo.id})
 
       assert deleted.id == todo.id
 
       # Verify deletion
-      {:yield, {:ok, todos}, _data} = AsyncComputation.resume_sync(runner, %ListTodos{})
+      %Suspend{value: {:ok, todos}} = AsyncComputation.resume_sync(runner, %ListTodos{})
       assert todos == []
 
       AsyncComputation.cancel(runner)
@@ -104,10 +105,10 @@ defmodule TodosMcp.CommandProcessorTest do
 
     test "stops gracefully with :stop command" do
       processor = CommandProcessor.build(mode: :in_memory)
-      {:ok, runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
+      {:ok, runner, %Suspend{value: :ready}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
-      # Send stop command
-      {:result, :stopped} = AsyncComputation.resume_sync(runner, :stop)
+      # Send stop command - returns plain value (not a Suspend)
+      :stopped = AsyncComputation.resume_sync(runner, :stop)
 
       # Runner process should have exited
       assert_receive {:DOWN, _, :process, pid, reason}
@@ -118,27 +119,27 @@ defmodule TodosMcp.CommandProcessorTest do
       processor1 = CommandProcessor.build(mode: :in_memory, tenant_id: "tenant-1")
       processor2 = CommandProcessor.build(mode: :in_memory, tenant_id: "tenant-2")
 
-      {:ok, runner1, {:yield, :ready, _data}} =
+      {:ok, runner1, %Suspend{value: :ready}} =
         AsyncComputation.start_sync(processor1, tag: :cmd1)
 
-      {:ok, runner2, {:yield, :ready, _data}} =
+      {:ok, runner2, %Suspend{value: :ready}} =
         AsyncComputation.start_sync(processor2, tag: :cmd2)
 
       # Create in tenant 1
-      {:yield, {:ok, _}, _data} =
+      %Suspend{value: {:ok, _}} =
         AsyncComputation.resume_sync(runner1, %CreateTodo{title: "Tenant 1 todo"})
 
       # Create in tenant 2
-      {:yield, {:ok, _}, _data} =
+      %Suspend{value: {:ok, _}} =
         AsyncComputation.resume_sync(runner2, %CreateTodo{title: "Tenant 2 todo"})
 
       # List in tenant 1 - should only see tenant 1's todo
-      {:yield, {:ok, todos1}, _data} = AsyncComputation.resume_sync(runner1, %ListTodos{})
+      %Suspend{value: {:ok, todos1}} = AsyncComputation.resume_sync(runner1, %ListTodos{})
       assert length(todos1) == 1
       assert hd(todos1).title == "Tenant 1 todo"
 
       # List in tenant 2 - should only see tenant 2's todo
-      {:yield, {:ok, todos2}, _data} = AsyncComputation.resume_sync(runner2, %ListTodos{})
+      %Suspend{value: {:ok, todos2}} = AsyncComputation.resume_sync(runner2, %ListTodos{})
       assert length(todos2) == 1
       assert hd(todos2).title == "Tenant 2 todo"
 
@@ -148,14 +149,14 @@ defmodule TodosMcp.CommandProcessorTest do
 
     test "handles errors gracefully" do
       processor = CommandProcessor.build(mode: :in_memory)
-      {:ok, runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
+      {:ok, runner, %Suspend{value: :ready}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
       # Try to get a non-existent todo
-      {:yield, {:error, :not_found}, _data} =
+      %Suspend{value: {:error, :not_found}} =
         AsyncComputation.resume_sync(runner, %TodosMcp.Todos.Queries.GetTodo{id: "nonexistent"})
 
       # Processor should still be alive and ready for next command
-      {:yield, {:ok, todo}, _data} =
+      %Suspend{value: {:ok, todo}} =
         AsyncComputation.resume_sync(runner, %CreateTodo{title: "After error"})
 
       assert todo.title == "After error"
@@ -167,13 +168,13 @@ defmodule TodosMcp.CommandProcessorTest do
   describe "async usage pattern" do
     test "can use async resume for commands" do
       processor = CommandProcessor.build(mode: :in_memory)
-      {:ok, runner, {:yield, :ready, _data}} = AsyncComputation.start_sync(processor, tag: :cmd)
+      {:ok, runner, %Suspend{value: :ready}} = AsyncComputation.start_sync(processor, tag: :cmd)
 
       # Use async resume
       :ok = AsyncComputation.resume(runner, %CreateTodo{title: "Async created"})
 
-      # Receive the result via message (4-element tuple with data)
-      assert_receive {:cmd, :yield, {:ok, todo}, _data}
+      # Receive the result via message (new uniform format)
+      assert_receive {AsyncComputation, :cmd, %Suspend{value: {:ok, todo}}}
       assert todo.title == "Async created"
 
       AsyncComputation.cancel(runner)
