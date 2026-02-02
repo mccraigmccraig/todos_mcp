@@ -208,12 +208,12 @@ defmodule TodosMcp.Llm.ConversationComp do
     llm_handler = build_llm_handler(api_key, provider, system, model, tools)
 
     # Build the computation with handlers
+    # Handler order matters: EffectLogger must be innermost to wrap State handler
     # Reader is outside EffectLogger (config lookups not logged)
-    # State is inside EffectLogger (state changes are logged for cold resume)
     # EffectLogger decorates suspends with the log via suspend.data
     run()
-    |> StateEffect.with_handler(initial_state, tag: __MODULE__)
     |> EffectLogger.with_logging(state_keys: [StateEffect.state_key(__MODULE__)])
+    |> StateEffect.with_handler(initial_state, tag: __MODULE__)
     |> Reader.with_handler(conversation_config, tag: __MODULE__)
     |> LlmCall.with_handler(llm_handler)
   end
