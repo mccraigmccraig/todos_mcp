@@ -3,7 +3,7 @@ defmodule TodosMcp.Todos.Handlers do
   Domain handlers for todo commands and queries.
 
   Handles all domain operations using Skuld effects:
-  - Repository (via Query effect) for reads
+  - Repository (via Port effect contract) for reads
   - ChangesetPersist for writes
   - Reader (CommandContext) for tenant isolation
   - EventAccumulator for domain events (future)
@@ -16,7 +16,7 @@ defmodule TodosMcp.Todos.Handlers do
       end
       |> Command.with_handler(&Todos.Handlers.handle/1)
       |> Reader.with_handler(%CommandContext{tenant_id: "tenant-123"}, tag: CommandContext)
-      |> Query.with_handler(%{Todos.Repository.Ecto => :direct})
+      |> Port.with_handler(%{Todos.Repository => Todos.Repository.Ecto})
       |> ChangesetPersist.Ecto.with_handler(Repo)
       |> Throw.with_handler()
       |> Comp.run!()

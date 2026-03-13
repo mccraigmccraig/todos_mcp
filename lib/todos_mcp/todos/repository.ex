@@ -1,76 +1,86 @@
 defmodule TodosMcp.Todos.Repository do
   @moduledoc """
-  Repository layer for todos.
+  Repository port contract for todos.
 
-  Public functions return `Skuld.Effects.Port` computations, keeping the
-  Port effect abstraction while providing a clean API.
+  Defines typed port operations for data access, generating caller functions,
+  bang variants, behaviour callbacks, key helpers, and introspection.
 
   ## Storage Modes
 
-  The implementation module is selected based on the configured storage mode:
+  The implementation module is selected via the Port handler registry:
   - `:database` → `Repository.Ecto` (Ecto/Postgres)
   - `:in_memory` → `Repository.InMemory` (Agent-based)
 
   ## API Variants
 
-  - Plain functions (`get_todo/1`) return result tuples `{:ok, value}` or
+  - Plain functions (`get_todo/2`) return result tuples `{:ok, value}` or
     `{:error, reason}` for explicit error handling
-  - Bang functions (`get_todo!/1`) unwrap success or dispatch `Throw` on error
+  - Bang functions (`get_todo!/2`) unwrap success or dispatch `Throw` on error
 
   ## Example
 
       comp do
         # Throws if not found
-        todo <- Repository.get_todo!(id)
+        todo <- Repository.get_todo!(tenant_id, id)
         # ... work with todo
       end
 
       comp do
         # Returns result tuple
-        result <- Repository.get_todo(id)
+        result <- Repository.get_todo(tenant_id, id)
         case result do
           {:ok, todo} -> ...
           {:error, _} -> ...
         end
       end
+
+  ## Implementation
+
+      defmodule TodosMcp.Todos.Repository.Ecto do
+        @behaviour TodosMcp.Todos.Repository
+
+        @impl true
+        def get_todo(tenant_id, id), do: ...
+      end
+
+  ## Handler Installation
+
+      my_comp
+      |> Port.with_handler(%{Repository => Repository.Ecto})
+      |> Comp.run!()
   """
 
-  alias Skuld.Effects.Port
+  use Skuld.Effects.Port.Contract
 
-  # All requests go to Ecto - the Port handler maps to the actual implementation
-  # based on storage mode (database -> Ecto direct, in_memory -> InMemory)
+  alias TodosMcp.Todos.Todo
 
-  # Get a single todo by ID (returns {:ok, todo} or {:error, :not_found})
-  def get_todo(tenant_id, id),
-    do: Port.request(__MODULE__.Ecto, :get_todo, %{tenant_id: tenant_id, id: id})
+  defport(
+    get_todo(tenant_id :: String.t(), id :: String.t()) ::
+      {:ok, Todo.t()} | {:error, term()}
+  )
 
-  # Get a single todo by ID (throws if not found)
-  def get_todo!(tenant_id, id),
-    do: Port.request!(__MODULE__.Ecto, :get_todo, %{tenant_id: tenant_id, id: id})
+  defport(
+    list_todos(tenant_id :: String.t(), opts :: map()) ::
+      {:ok, [Todo.t()]} | {:error, term()}
+  )
 
-  # List todos with optional filtering and sorting
-  def list_todos(tenant_id, opts \\ %{}) do
-    Port.request!(__MODULE__.Ecto, :list_todos, Map.put(opts, :tenant_id, tenant_id))
-  end
+  defport(
+    list_incomplete(tenant_id :: String.t()) ::
+      {:ok, [Todo.t()]} | {:error, term()}
+  )
 
-  # List only incomplete todos for a tenant
-  def list_incomplete(tenant_id),
-    do: Port.request!(__MODULE__.Ecto, :list_incomplete, %{tenant_id: tenant_id})
+  defport(
+    list_completed(tenant_id :: String.t()) ::
+      {:ok, [Todo.t()]} | {:error, term()}
+  )
 
-  # List only completed todos for a tenant
-  def list_completed(tenant_id),
-    do: Port.request!(__MODULE__.Ecto, :list_completed, %{tenant_id: tenant_id})
+  defport(
+    search_todos(tenant_id :: String.t(), query :: String.t(), limit :: integer()) ::
+      {:ok, [Todo.t()]} | {:error, term()}
+  )
 
-  # Search todos by title/description
-  def search_todos(tenant_id, query, limit \\ 20) do
-    Port.request!(__MODULE__.Ecto, :search_todos, %{
-      tenant_id: tenant_id,
-      query: query,
-      limit: limit
-    })
-  end
-
-  # Get statistics (total, active, completed counts) for a tenant
-  def get_stats(tenant_id),
-    do: Port.request!(__MODULE__.Ecto, :get_stats, %{tenant_id: tenant_id})
+  defport(
+    get_stats(tenant_id :: String.t()) ::
+      {:ok, map()} | {:error, term()}
+  )
 end

@@ -5,7 +5,7 @@ defmodule TodosMcp.Run do
   Sets up the layered handler chain:
   - Command effect → Todos.Handlers (business logic)
   - Reader effect → CommandContext (tenant isolation)
-  - Port effect → Todos.Repository.Ecto (data access)
+  - Port effect → Todos.Repository contract → Ecto or InMemory (data access)
   - ChangesetPersist effect → Repo (persistence)
   - Throw effect → error handling
 
@@ -99,14 +99,13 @@ defmodule TodosMcp.Run do
   # Install storage handlers based on mode
   defp with_storage_handlers(comp, :database) do
     comp
-    |> Port.with_handler(%{Repository.Ecto => :direct})
+    |> Port.with_handler(%{Repository => Repository.Ecto})
     |> ChangesetPersist.Ecto.with_handler(Repo)
   end
 
   defp with_storage_handlers(comp, :in_memory) do
-    # Redirect Repository.Ecto requests to InMemory
     comp
-    |> Port.with_handler(%{Repository.Ecto => {Repository.InMemory, :delegate}})
+    |> Port.with_handler(%{Repository => Repository.InMemory})
     |> InMemoryPersist.with_handler()
   end
 

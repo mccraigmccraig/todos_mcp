@@ -1,10 +1,12 @@
 defmodule TodosMcp.Todos.Repository.Ecto do
   @moduledoc """
-  Ecto/Postgres implementation of repository operations.
+  Ecto/Postgres implementation of the Repository port contract.
 
   All functions return `{:ok, value}` | `{:error, reason}` result tuples.
-  Used by the Query effect handler in production mode.
+  Used by the Port effect handler in production mode.
   """
+
+  @behaviour TodosMcp.Todos.Repository
 
   import Ecto.Query
   alias TodosMcp.Repo
@@ -13,15 +15,16 @@ defmodule TodosMcp.Todos.Repository.Ecto do
   # Tenant-scoped base query - ensures all queries are filtered by tenant
   defp scoped(tenant_id), do: from(t in Todo, where: t.tenant_id == ^tenant_id)
 
-  def get_todo(%{tenant_id: tenant_id, id: id}) do
+  @impl true
+  def get_todo(tenant_id, id) do
     case scoped(tenant_id) |> where([t], t.id == ^id) |> Repo.one() do
       nil -> {:error, {:not_found, Todo, id}}
       todo -> {:ok, todo}
     end
   end
 
-  def list_todos(opts) do
-    tenant_id = Map.fetch!(opts, :tenant_id)
+  @impl true
+  def list_todos(tenant_id, opts) do
     filter = Map.get(opts, :filter, :all)
     sort_by = Map.get(opts, :sort_by, :inserted_at)
     sort_order = Map.get(opts, :sort_order, :desc)
@@ -35,7 +38,8 @@ defmodule TodosMcp.Todos.Repository.Ecto do
     {:ok, todos}
   end
 
-  def list_incomplete(%{tenant_id: tenant_id}) do
+  @impl true
+  def list_incomplete(tenant_id) do
     todos =
       scoped(tenant_id)
       |> where([t], t.completed == false)
@@ -44,7 +48,8 @@ defmodule TodosMcp.Todos.Repository.Ecto do
     {:ok, todos}
   end
 
-  def list_completed(%{tenant_id: tenant_id}) do
+  @impl true
+  def list_completed(tenant_id) do
     todos =
       scoped(tenant_id)
       |> where([t], t.completed == true)
@@ -53,7 +58,8 @@ defmodule TodosMcp.Todos.Repository.Ecto do
     {:ok, todos}
   end
 
-  def search_todos(%{tenant_id: tenant_id, query: search_query, limit: limit}) do
+  @impl true
+  def search_todos(tenant_id, search_query, limit) do
     search_pattern = "%#{search_query}%"
 
     todos =
@@ -66,7 +72,8 @@ defmodule TodosMcp.Todos.Repository.Ecto do
     {:ok, todos}
   end
 
-  def get_stats(%{tenant_id: tenant_id}) do
+  @impl true
+  def get_stats(tenant_id) do
     base = scoped(tenant_id)
     total = Repo.aggregate(base, :count)
     completed = Repo.aggregate(where(base, [t], t.completed == true), :count)

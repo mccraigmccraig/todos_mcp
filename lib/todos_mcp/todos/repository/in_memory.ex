@@ -1,38 +1,26 @@
 defmodule TodosMcp.Todos.Repository.InMemory do
   @moduledoc """
-  In-memory implementation of Repository queries.
+  In-memory implementation of the Repository port contract.
 
   Uses `TodosMcp.InMemoryStore` as the backing store. All functions
   return `{:ok, value}` or `{:error, reason}` result tuples.
 
-  ## Usage with Query effect
+  ## Usage with Port effect
 
-      # Direct mode
       computation
-      |> Query.with_handler(%{TodosMcp.Todos.Repository.InMemory => :direct})
-      |> Comp.run!()
-
-      # Delegation mode (redirect from Ecto)
-      computation
-      |> Query.with_handler(%{TodosMcp.Todos.Repository.Ecto => {TodosMcp.Todos.Repository.InMemory, :delegate}})
+      |> Port.with_handler(%{TodosMcp.Todos.Repository => TodosMcp.Todos.Repository.InMemory})
       |> Comp.run!()
   """
+
+  @behaviour TodosMcp.Todos.Repository
 
   alias TodosMcp.InMemoryStore
   alias TodosMcp.Todos.Todo
 
   @store InMemoryStore
 
-  @doc """
-  Delegate query from Repository.Ecto to this module.
-
-  Called by Query handler when resolver is `{InMemory, :delegate}`.
-  """
-  def delegate(_original_mod, name, params) do
-    apply(__MODULE__, name, [params])
-  end
-
-  def get_todo(%{tenant_id: tenant_id, id: id}) do
+  @impl true
+  def get_todo(tenant_id, id) do
     case @store.get(id) do
       nil -> {:error, {:not_found, Todo, id}}
       todo when todo.tenant_id == tenant_id -> {:ok, todo}
@@ -40,8 +28,8 @@ defmodule TodosMcp.Todos.Repository.InMemory do
     end
   end
 
-  def list_todos(opts) do
-    tenant_id = Map.fetch!(opts, :tenant_id)
+  @impl true
+  def list_todos(tenant_id, opts) do
     filter = Map.get(opts, :filter, :all)
     sort_by = Map.get(opts, :sort_by, :inserted_at)
     sort_order = Map.get(opts, :sort_order, :desc)
@@ -55,17 +43,20 @@ defmodule TodosMcp.Todos.Repository.InMemory do
     {:ok, todos}
   end
 
-  def list_incomplete(%{tenant_id: tenant_id}) do
+  @impl true
+  def list_incomplete(tenant_id) do
     todos = @store.filter(fn todo -> todo.tenant_id == tenant_id && !todo.completed end)
     {:ok, todos}
   end
 
-  def list_completed(%{tenant_id: tenant_id}) do
+  @impl true
+  def list_completed(tenant_id) do
     todos = @store.filter(fn todo -> todo.tenant_id == tenant_id && todo.completed end)
     {:ok, todos}
   end
 
-  def search_todos(%{tenant_id: tenant_id, query: search_query, limit: limit}) do
+  @impl true
+  def search_todos(tenant_id, search_query, limit) do
     search_pattern = String.downcase(search_query)
 
     todos =
@@ -88,9 +79,10 @@ defmodule TodosMcp.Todos.Repository.InMemory do
     todo.description && String.contains?(String.downcase(todo.description), pattern)
   end
 
-  def get_stats(%{tenant_id: tenant_id}) do
+  @impl true
+  def get_stats(tenant_id) do
     all = @store.filter(fn todo -> todo.tenant_id == tenant_id end)
-    total = length(all)
+    total = Enum.count(all)
     completed = Enum.count(all, & &1.completed)
     active = total - completed
 

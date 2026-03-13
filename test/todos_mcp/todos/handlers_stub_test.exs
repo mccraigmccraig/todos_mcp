@@ -32,7 +32,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
 
   # Helper to run operations through the domain handler with stubbed effects.
   # Options:
-  #   - queries: map of Port.key(...) => result for Port.with_test_handler
+  #   - queries: map of Repository.key(:op, ...) => result for Port.with_test_handler
   #   - persist: function for ChangesetPersist.Test.with_handler
   #   - fresh: keyword opts for Fresh.with_test_handler (e.g., namespace: "test")
   #   - tenant_id: tenant for CommandContext (defaults to @test_tenant)
@@ -89,8 +89,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, todo}, calls} =
         run(%UpdateTodo{id: @uuid1, title: "New Title"},
           queries: %{
-            Port.key(Repository.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
-              {:ok, existing}
+            Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
           persist: fn %ChangesetPersist.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
@@ -118,8 +117,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, todo}, calls} =
         run(%ToggleTodo{id: @uuid1},
           queries: %{
-            Port.key(Repository.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
-              {:ok, existing}
+            Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
           persist: fn %ChangesetPersist.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
@@ -143,8 +141,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, deleted}, calls} =
         run(%DeleteTodo{id: @uuid1},
           queries: %{
-            Port.key(Repository.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
-              {:ok, existing}
+            Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
           persist: fn %ChangesetPersist.Delete{input: s} -> {:ok, s} end
         )
@@ -168,8 +165,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, todo} =
         run(%GetTodo{id: @uuid1},
           queries: %{
-            Port.key(Repository.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid1}) =>
-              {:ok, existing}
+            Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           }
         )
 
@@ -181,7 +177,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       result =
         run(%GetTodo{id: @uuid_not_found},
           queries: %{
-            Port.key(Repository.Ecto, :get_todo, %{tenant_id: @test_tenant, id: @uuid_not_found}) =>
+            Repository.key(:get_todo, @test_tenant, @uuid_not_found) =>
               {:error, {:not_found, Todo, @uuid_not_found}}
           }
         )
@@ -214,12 +210,11 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%ListTodos{},
           queries: %{
-            Port.key(Repository.Ecto, :list_todos, %{
-              tenant_id: @test_tenant,
-              filter: :all,
-              sort_by: :inserted_at,
-              sort_order: :desc
-            }) => {:ok, todos}
+            Repository.key(
+              :list_todos,
+              @test_tenant,
+              %{filter: :all, sort_by: :inserted_at, sort_order: :desc}
+            ) => {:ok, todos}
           }
         )
 
@@ -252,8 +247,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, result}, calls} =
         run(%CompleteAll{},
           queries: %{
-            Port.key(Repository.Ecto, :list_incomplete, %{tenant_id: @test_tenant}) =>
-              {:ok, incomplete_todos}
+            Repository.key(:list_incomplete, @test_tenant) => {:ok, incomplete_todos}
           },
           persist: fn %ChangesetPersist.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
@@ -269,7 +263,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, result}, calls} =
         run(%CompleteAll{},
           queries: %{
-            Port.key(Repository.Ecto, :list_incomplete, %{tenant_id: @test_tenant}) => {:ok, []}
+            Repository.key(:list_incomplete, @test_tenant) => {:ok, []}
           },
           persist: fn %ChangesetPersist.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
@@ -303,8 +297,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, result}, calls} =
         run(%ClearCompleted{},
           queries: %{
-            Port.key(Repository.Ecto, :list_completed, %{tenant_id: @test_tenant}) =>
-              {:ok, completed_todos}
+            Repository.key(:list_completed, @test_tenant) => {:ok, completed_todos}
           },
           persist: fn %ChangesetPersist.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
@@ -317,7 +310,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, result}, calls} =
         run(%ClearCompleted{},
           queries: %{
-            Port.key(Repository.Ecto, :list_completed, %{tenant_id: @test_tenant}) => {:ok, []}
+            Repository.key(:list_completed, @test_tenant) => {:ok, []}
           },
           persist: fn %ChangesetPersist.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
@@ -351,11 +344,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%SearchTodos{query: "Buy", limit: 10},
           queries: %{
-            Port.key(Repository.Ecto, :search_todos, %{
-              tenant_id: @test_tenant,
-              query: "Buy",
-              limit: 10
-            }) => {:ok, matching_todos}
+            Repository.key(:search_todos, @test_tenant, "Buy", 10) => {:ok, matching_todos}
           }
         )
 
@@ -367,11 +356,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%SearchTodos{query: "nonexistent"},
           queries: %{
-            Port.key(Repository.Ecto, :search_todos, %{
-              tenant_id: @test_tenant,
-              query: "nonexistent",
-              limit: 20
-            }) => {:ok, []}
+            Repository.key(:search_todos, @test_tenant, "nonexistent", 20) => {:ok, []}
           }
         )
 
@@ -384,7 +369,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%GetStats{},
           queries: %{
-            Port.key(Repository.Ecto, :get_stats, %{tenant_id: @test_tenant}) =>
+            Repository.key(:get_stats, @test_tenant) =>
               {:ok, %{total: 10, active: 6, completed: 4}}
           }
         )
@@ -396,7 +381,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%GetStats{},
           queries: %{
-            Port.key(Repository.Ecto, :get_stats, %{tenant_id: @test_tenant}) =>
+            Repository.key(:get_stats, @test_tenant) =>
               {:ok, %{total: 0, active: 0, completed: 0}}
           }
         )
