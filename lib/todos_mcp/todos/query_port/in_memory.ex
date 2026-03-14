@@ -1,6 +1,6 @@
-defmodule TodosMcp.Todos.Repository.InMemory do
+defmodule TodosMcp.Todos.QueryPort.InMemory do
   @moduledoc """
-  In-memory implementation of the Repository port contract.
+  In-memory implementation of the QueryPort port contract.
 
   Uses `TodosMcp.InMemoryStore` as the backing store. All functions
   return `{:ok, value}` or `{:error, reason}` result tuples.
@@ -8,11 +8,11 @@ defmodule TodosMcp.Todos.Repository.InMemory do
   ## Usage with Port effect
 
       computation
-      |> Port.with_handler(%{TodosMcp.Todos.Repository => TodosMcp.Todos.Repository.InMemory})
+      |> Port.with_handler(%{TodosMcp.Todos.QueryPort => TodosMcp.Todos.QueryPort.InMemory})
       |> Comp.run!()
   """
 
-  @behaviour TodosMcp.Todos.Repository
+  @behaviour TodosMcp.Todos.QueryPort
 
   alias TodosMcp.InMemoryStore
   alias TodosMcp.Todos.Todo

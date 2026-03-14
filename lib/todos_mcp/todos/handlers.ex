@@ -3,7 +3,7 @@ defmodule TodosMcp.Todos.Handlers do
   Domain handlers for todo commands and queries.
 
   Handles all domain operations using Skuld effects:
-  - Repository (via Port effect contract) for reads
+  - QueryPort (via Port effect contract) for reads
   - DB for writes
   - Reader (CommandContext) for tenant isolation
   - EventAccumulator for domain events (future)
@@ -16,7 +16,7 @@ defmodule TodosMcp.Todos.Handlers do
       end
       |> Command.with_handler(&Todos.Handlers.handle/1)
       |> Reader.with_handler(%CommandContext{tenant_id: "tenant-123"}, tag: CommandContext)
-      |> Port.with_handler(%{Todos.Repository => Todos.Repository.Ecto})
+      |> Port.with_handler(%{Todos.QueryPort => Todos.QueryPort.Ecto})
       |> DB.Ecto.with_handler(Repo)
       |> Throw.with_handler()
       |> Comp.run!()
@@ -25,7 +25,7 @@ defmodule TodosMcp.Todos.Handlers do
   use Skuld.Syntax
 
   alias TodosMcp.CommandContext
-  alias TodosMcp.Todos.{Todo, Repository}
+  alias TodosMcp.Todos.{Todo, QueryPort}
   alias Skuld.Effects.{DB, Fresh, Reader}
 
   alias TodosMcp.Todos.Commands.{
@@ -69,7 +69,7 @@ defmodule TodosMcp.Todos.Handlers do
 
   defcomp handle(%UpdateTodo{id: id} = cmd) do
     ctx <- Reader.ask(CommandContext)
-    todo <- Repository.get_todo!(ctx.tenant_id, id)
+    todo <- QueryPort.get_todo!(ctx.tenant_id, id)
 
     attrs =
       %{
@@ -89,7 +89,7 @@ defmodule TodosMcp.Todos.Handlers do
 
   defcomp handle(%ToggleTodo{id: id}) do
     ctx <- Reader.ask(CommandContext)
-    todo <- Repository.get_todo!(ctx.tenant_id, id)
+    todo <- QueryPort.get_todo!(ctx.tenant_id, id)
     changeset = Todo.changeset(todo, %{completed: not todo.completed})
     updated <- DB.update(changeset)
     {:ok, updated}
@@ -97,14 +97,14 @@ defmodule TodosMcp.Todos.Handlers do
 
   defcomp handle(%DeleteTodo{id: id}) do
     ctx <- Reader.ask(CommandContext)
-    todo <- Repository.get_todo!(ctx.tenant_id, id)
+    todo <- QueryPort.get_todo!(ctx.tenant_id, id)
     result <- DB.delete(todo)
     result
   end
 
   defcomp handle(%CompleteAll{}) do
     ctx <- Reader.ask(CommandContext)
-    todos <- Repository.list_incomplete!(ctx.tenant_id)
+    todos <- QueryPort.list_incomplete!(ctx.tenant_id)
     changesets = Enum.map(todos, &Todo.changeset(&1, %{completed: true}))
     {count, _} <- DB.update_all(Todo, changesets)
     {:ok, %{updated: count}}
@@ -112,7 +112,7 @@ defmodule TodosMcp.Todos.Handlers do
 
   defcomp handle(%ClearCompleted{}) do
     ctx <- Reader.ask(CommandContext)
-    todos <- Repository.list_completed!(ctx.tenant_id)
+    todos <- QueryPort.list_completed!(ctx.tenant_id)
     {count, _} <- DB.delete_all(Todo, todos)
     {:ok, %{deleted: count}}
   end
@@ -125,7 +125,7 @@ defmodule TodosMcp.Todos.Handlers do
     ctx <- Reader.ask(CommandContext)
 
     todos <-
-      Repository.list_todos!(ctx.tenant_id, %{
+      QueryPort.list_todos!(ctx.tenant_id, %{
         filter: filter,
         sort_by: sort_by,
         sort_order: sort_order
@@ -136,7 +136,7 @@ defmodule TodosMcp.Todos.Handlers do
 
   defcomp handle(%GetTodo{id: id}) do
     ctx <- Reader.ask(CommandContext)
-    result <- Repository.get_todo(ctx.tenant_id, id)
+    result <- QueryPort.get_todo(ctx.tenant_id, id)
 
     case result do
       {:ok, todo} -> {:ok, todo}
@@ -146,13 +146,13 @@ defmodule TodosMcp.Todos.Handlers do
 
   defcomp handle(%SearchTodos{query: query, limit: limit}) do
     ctx <- Reader.ask(CommandContext)
-    todos <- Repository.search_todos!(ctx.tenant_id, query, limit)
+    todos <- QueryPort.search_todos!(ctx.tenant_id, query, limit)
     {:ok, todos}
   end
 
   defcomp handle(%GetStats{}) do
     ctx <- Reader.ask(CommandContext)
-    stats <- Repository.get_stats!(ctx.tenant_id)
+    stats <- QueryPort.get_stats!(ctx.tenant_id)
     {:ok, stats}
   end
 end

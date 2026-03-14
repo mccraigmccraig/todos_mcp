@@ -49,7 +49,7 @@ defmodule TodosMcp.CommandProcessor do
   alias TodosMcp.Effects.InMemoryPersist
   alias TodosMcp.Repo
   alias TodosMcp.Todos.Handlers
-  alias TodosMcp.Todos.Repository
+  alias TodosMcp.Todos.QueryPort
 
   @doc """
   Build a command processor computation.
@@ -129,13 +129,13 @@ defmodule TodosMcp.CommandProcessor do
 
   defp with_storage_handlers(comp, :database) do
     comp
-    |> Port.with_handler(%{Repository => Repository.Ecto})
+    |> Port.with_handler(%{QueryPort => QueryPort.Ecto})
     |> DB.Ecto.with_handler(Repo)
   end
 
   defp with_storage_handlers(comp, :in_memory) do
     comp
-    |> Port.with_handler(%{Repository => Repository.InMemory})
+    |> Port.with_handler(%{QueryPort => QueryPort.InMemory})
     |> InMemoryPersist.with_handler()
   end
 

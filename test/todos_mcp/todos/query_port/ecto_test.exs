@@ -1,6 +1,6 @@
-defmodule TodosMcp.Todos.Repository.EctoTest do
+defmodule TodosMcp.Todos.QueryPort.EctoTest do
   @moduledoc """
-  Tests for Todos.Repository.Ecto with real database (Ecto sandbox).
+  Tests for Todos.QueryPort.Ecto with real database (Ecto sandbox).
   Only runs when storage_mode is :database.
   """
   use TodosMcp.DataCase, async: true
@@ -11,7 +11,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
   end
 
   alias TodosMcp.Repo
-  alias TodosMcp.Todos.{Todo, Repository}
+  alias TodosMcp.Todos.{Todo, QueryPort}
 
   @test_tenant "test-tenant"
 
@@ -30,7 +30,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
     test "returns {:ok, todo} when found" do
       todo = create_todo!(%{title: "Test Todo"})
 
-      {:ok, result} = Repository.Ecto.get_todo(@test_tenant, todo.id)
+      {:ok, result} = QueryPort.Ecto.get_todo(@test_tenant, todo.id)
 
       assert result.id == todo.id
       assert result.title == "Test Todo"
@@ -39,7 +39,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
     test "returns {:error, :not_found} when not found" do
       non_existent_id = Uniq.UUID.uuid7()
 
-      result = Repository.Ecto.get_todo(@test_tenant, non_existent_id)
+      result = QueryPort.Ecto.get_todo(@test_tenant, non_existent_id)
 
       assert {:error, {:not_found, TodosMcp.Todos.Todo, ^non_existent_id}} = result
     end
@@ -47,7 +47,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
     test "does not return todos from other tenants" do
       todo = create_todo!(%{title: "Test Todo"})
 
-      result = Repository.Ecto.get_todo("other-tenant", todo.id)
+      result = QueryPort.Ecto.get_todo("other-tenant", todo.id)
 
       assert {:error, {:not_found, TodosMcp.Todos.Todo, _}} = result
     end
@@ -58,7 +58,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       todo1 = create_todo!(%{title: "First"})
       todo2 = create_todo!(%{title: "Second"})
 
-      {:ok, result} = Repository.Ecto.list_todos(@test_tenant, %{})
+      {:ok, result} = QueryPort.Ecto.list_todos(@test_tenant, %{})
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -70,7 +70,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       _completed = create_todo!(%{title: "Done", completed: true})
       active = create_todo!(%{title: "Active", completed: false})
 
-      {:ok, result} = Repository.Ecto.list_todos(@test_tenant, %{filter: :active})
+      {:ok, result} = QueryPort.Ecto.list_todos(@test_tenant, %{filter: :active})
 
       assert length(result) == 1
       assert hd(result).id == active.id
@@ -80,7 +80,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       completed = create_todo!(%{title: "Done", completed: true})
       _active = create_todo!(%{title: "Active", completed: false})
 
-      {:ok, result} = Repository.Ecto.list_todos(@test_tenant, %{filter: :completed})
+      {:ok, result} = QueryPort.Ecto.list_todos(@test_tenant, %{filter: :completed})
 
       assert length(result) == 1
       assert hd(result).id == completed.id
@@ -91,7 +91,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       create_todo!(%{title: "Apple"})
 
       {:ok, result} =
-        Repository.Ecto.list_todos(@test_tenant, %{sort_by: :title, sort_order: :asc})
+        QueryPort.Ecto.list_todos(@test_tenant, %{sort_by: :title, sort_order: :asc})
 
       titles = Enum.map(result, & &1.title)
       assert titles == ["Apple", "Zebra"]
@@ -102,7 +102,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       create_todo!(%{title: "Zebra"})
 
       {:ok, result} =
-        Repository.Ecto.list_todos(@test_tenant, %{sort_by: :title, sort_order: :desc})
+        QueryPort.Ecto.list_todos(@test_tenant, %{sort_by: :title, sort_order: :desc})
 
       titles = Enum.map(result, & &1.title)
       assert titles == ["Zebra", "Apple"]
@@ -114,14 +114,14 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       create_todo!(%{title: "Medium", priority: :medium})
 
       {:ok, result} =
-        Repository.Ecto.list_todos(@test_tenant, %{sort_by: :priority, sort_order: :asc})
+        QueryPort.Ecto.list_todos(@test_tenant, %{sort_by: :priority, sort_order: :asc})
 
       priorities = Enum.map(result, & &1.priority)
       assert priorities == [:high, :low, :medium]
     end
 
     test "returns empty list when no todos" do
-      {:ok, result} = Repository.Ecto.list_todos(@test_tenant, %{})
+      {:ok, result} = QueryPort.Ecto.list_todos(@test_tenant, %{})
 
       assert result == []
     end
@@ -129,7 +129,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
     test "only returns todos for the specified tenant" do
       create_todo!(%{title: "My Todo"})
 
-      {:ok, result} = Repository.Ecto.list_todos("other-tenant", %{})
+      {:ok, result} = QueryPort.Ecto.list_todos("other-tenant", %{})
 
       assert result == []
     end
@@ -141,7 +141,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       incomplete2 = create_todo!(%{title: "Todo 2", completed: false})
       _completed = create_todo!(%{title: "Done", completed: true})
 
-      {:ok, result} = Repository.Ecto.list_incomplete(@test_tenant)
+      {:ok, result} = QueryPort.Ecto.list_incomplete(@test_tenant)
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -153,7 +153,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       create_todo!(%{title: "Done 1", completed: true})
       create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = Repository.Ecto.list_incomplete(@test_tenant)
+      {:ok, result} = QueryPort.Ecto.list_incomplete(@test_tenant)
 
       assert result == []
     end
@@ -165,7 +165,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       completed1 = create_todo!(%{title: "Done 1", completed: true})
       completed2 = create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = Repository.Ecto.list_completed(@test_tenant)
+      {:ok, result} = QueryPort.Ecto.list_completed(@test_tenant)
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -177,7 +177,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       create_todo!(%{title: "Todo 1", completed: false})
       create_todo!(%{title: "Todo 2", completed: false})
 
-      {:ok, result} = Repository.Ecto.list_completed(@test_tenant)
+      {:ok, result} = QueryPort.Ecto.list_completed(@test_tenant)
 
       assert result == []
     end
@@ -189,7 +189,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       match2 = create_todo!(%{title: "Buy eggs"})
       _no_match = create_todo!(%{title: "Walk dog"})
 
-      {:ok, result} = Repository.Ecto.search_todos(@test_tenant, "Buy", 10)
+      {:ok, result} = QueryPort.Ecto.search_todos(@test_tenant, "Buy", 10)
 
       assert length(result) == 2
       ids = Enum.map(result, & &1.id)
@@ -201,7 +201,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       match = create_todo!(%{title: "Task", description: "Remember to buy milk"})
       _no_match = create_todo!(%{title: "Other", description: "Walk the dog"})
 
-      {:ok, result} = Repository.Ecto.search_todos(@test_tenant, "milk", 10)
+      {:ok, result} = QueryPort.Ecto.search_todos(@test_tenant, "milk", 10)
 
       assert length(result) == 1
       assert hd(result).id == match.id
@@ -210,7 +210,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
     test "search is case insensitive" do
       match = create_todo!(%{title: "BUY MILK"})
 
-      {:ok, result} = Repository.Ecto.search_todos(@test_tenant, "buy milk", 10)
+      {:ok, result} = QueryPort.Ecto.search_todos(@test_tenant, "buy milk", 10)
 
       assert length(result) == 1
       assert hd(result).id == match.id
@@ -219,7 +219,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
     test "respects limit" do
       for i <- 1..5, do: create_todo!(%{title: "Task #{i}"})
 
-      {:ok, result} = Repository.Ecto.search_todos(@test_tenant, "Task", 3)
+      {:ok, result} = QueryPort.Ecto.search_todos(@test_tenant, "Task", 3)
 
       assert length(result) == 3
     end
@@ -227,7 +227,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
     test "returns empty list when no matches" do
       create_todo!(%{title: "Something else"})
 
-      {:ok, result} = Repository.Ecto.search_todos(@test_tenant, "nonexistent", 10)
+      {:ok, result} = QueryPort.Ecto.search_todos(@test_tenant, "nonexistent", 10)
 
       assert result == []
     end
@@ -239,13 +239,13 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       create_todo!(%{title: "Active 2", completed: false})
       create_todo!(%{title: "Done 1", completed: true})
 
-      {:ok, result} = Repository.Ecto.get_stats(@test_tenant)
+      {:ok, result} = QueryPort.Ecto.get_stats(@test_tenant)
 
       assert result == %{total: 3, active: 2, completed: 1}
     end
 
     test "returns zeros when no todos" do
-      {:ok, result} = Repository.Ecto.get_stats(@test_tenant)
+      {:ok, result} = QueryPort.Ecto.get_stats(@test_tenant)
 
       assert result == %{total: 0, active: 0, completed: 0}
     end
@@ -254,7 +254,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       create_todo!(%{title: "Active 1", completed: false})
       create_todo!(%{title: "Active 2", completed: false})
 
-      {:ok, result} = Repository.Ecto.get_stats(@test_tenant)
+      {:ok, result} = QueryPort.Ecto.get_stats(@test_tenant)
 
       assert result == %{total: 2, active: 2, completed: 0}
     end
@@ -263,7 +263,7 @@ defmodule TodosMcp.Todos.Repository.EctoTest do
       create_todo!(%{title: "Done 1", completed: true})
       create_todo!(%{title: "Done 2", completed: true})
 
-      {:ok, result} = Repository.Ecto.get_stats(@test_tenant)
+      {:ok, result} = QueryPort.Ecto.get_stats(@test_tenant)
 
       assert result == %{total: 2, active: 0, completed: 2}
     end

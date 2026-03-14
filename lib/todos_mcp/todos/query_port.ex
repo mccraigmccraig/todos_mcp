@@ -1,15 +1,18 @@
-defmodule TodosMcp.Todos.Repository do
+defmodule TodosMcp.Todos.QueryPort do
   @moduledoc """
-  Repository port contract for todos.
+  Query port contract for todos.
 
-  Defines typed port operations for data access, generating caller functions,
-  bang variants, behaviour callbacks, key helpers, and introspection.
+  Defines typed read-only port operations for data access, generating caller
+  functions, bang variants, behaviour callbacks, key helpers, and introspection.
+
+  Write operations (insert, update, delete) are handled by the `DB` effect
+  directly — see `Skuld.Effects.DB`.
 
   ## Storage Modes
 
   The implementation module is selected via the Port handler registry:
-  - `:database` → `Repository.Ecto` (Ecto/Postgres)
-  - `:in_memory` → `Repository.InMemory` (Agent-based)
+  - `:database` → `QueryPort.Ecto` (Ecto/Postgres)
+  - `:in_memory` → `QueryPort.InMemory` (Agent-based)
 
   ## API Variants
 
@@ -21,13 +24,13 @@ defmodule TodosMcp.Todos.Repository do
 
       comp do
         # Throws if not found
-        todo <- Repository.get_todo!(tenant_id, id)
+        todo <- QueryPort.get_todo!(tenant_id, id)
         # ... work with todo
       end
 
       comp do
         # Returns result tuple
-        result <- Repository.get_todo(tenant_id, id)
+        result <- QueryPort.get_todo(tenant_id, id)
         case result do
           {:ok, todo} -> ...
           {:error, _} -> ...
@@ -36,8 +39,8 @@ defmodule TodosMcp.Todos.Repository do
 
   ## Implementation
 
-      defmodule TodosMcp.Todos.Repository.Ecto do
-        @behaviour TodosMcp.Todos.Repository
+      defmodule TodosMcp.Todos.QueryPort.Ecto do
+        @behaviour TodosMcp.Todos.QueryPort
 
         @impl true
         def get_todo(tenant_id, id), do: ...
@@ -46,7 +49,7 @@ defmodule TodosMcp.Todos.Repository do
   ## Handler Installation
 
       my_comp
-      |> Port.with_handler(%{Repository => Repository.Ecto})
+      |> Port.with_handler(%{QueryPort => QueryPort.Ecto})
       |> Comp.run!()
   """
 

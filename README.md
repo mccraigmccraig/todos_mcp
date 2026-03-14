@@ -43,13 +43,13 @@ defcomp handle(%CreateTodo{} = cmd) do
   ctx <- Reader.ask(CommandContext)
   id <- Fresh.fresh_uuid()
   changeset = Todo.changeset(%Todo{}, %{id: id, tenant_id: ctx.tenant_id, ...})
-  todo <- ChangesetPersist.insert(changeset)
+  todo <- DB.insert(changeset)
   {:ok, todo}
 end
 
 defcomp handle(%ListTodos{filter: filter, sort_by: sort_by, sort_order: sort_order}) do
   ctx <- Reader.ask(CommandContext)
-  todos <- Repository.list_todos(ctx.tenant_id, %{filter: filter, ...})
+  todos <- QueryPort.list_todos(ctx.tenant_id, %{filter: filter, ...})
   {:ok, todos}
 end
 ```
@@ -93,9 +93,9 @@ trivially testable.
 ```elixir
 defcomp handle(%ToggleTodo{id: id}) do
   ctx <- Reader.ask(CommandContext)        # "I need the command context"
-  todo <- Repository.get_todo!(ctx.tenant_id, id)  # "I need this todo"
+  todo <- QueryPort.get_todo!(ctx.tenant_id, id)  # "I need this todo"
   changeset = Todo.changeset(todo, %{completed: not todo.completed})
-  updated <- ChangesetPersist.update(changeset)  # "Persist this change"
+  updated <- DB.update(changeset)  # "Persist this change"
   {:ok, updated}
 end
 ```
@@ -114,15 +114,15 @@ comp do
 end
 |> Command.with_handler(&Handlers.handle/1)
 |> Reader.with_handler(context, tag: CommandContext)
-|> with_storage_handlers(mode)  # Query + Persist handlers
+|> with_storage_handlers(mode)  # QueryPort + DB handlers
 |> Fresh.with_uuid7_handler()
 |> Throw.with_handler()
 |> Comp.run()
 
 # Storage handlers vary by mode:
-# :database -> Query.with_handler(%{Repository.Ecto => :direct})
-#           -> ChangesetPersist.Ecto.with_handler(Repo)
-# :in_memory -> Query.with_handler(%{Repository.Ecto => {Repository.InMemory, :delegate}})
+# :database -> Port.with_handler(%{QueryPort => QueryPort.Ecto})
+#           -> DB.Ecto.with_handler(Repo)
+# :in_memory -> Port.with_handler(%{QueryPort => QueryPort.InMemory})
 #            -> InMemoryPersist.with_handler()
 ```
 
@@ -315,8 +315,8 @@ lib/todos_mcp/
 │   ├── queries.ex            # Query structs (ListTodos, GetStats, etc.)
 │   ├── handlers.ex           # Effectful domain logic
 │   ├── todo.ex               # Todo schema
-│   ├── repository.ex         # Repository effect for data access
-│   └── repository/
+│   ├── query_port.ex         # QueryPort contract for data access
+│   └── query_port/
 │       ├── ecto.ex           # Postgres implementation
 │       └── in_memory.ex      # Pure in-memory implementation
 ├── effects/

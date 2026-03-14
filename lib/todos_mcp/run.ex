@@ -5,7 +5,7 @@ defmodule TodosMcp.Run do
   Sets up the layered handler chain:
   - Command effect → Todos.Handlers (business logic)
   - Reader effect → CommandContext (tenant isolation)
-  - Port effect → Todos.Repository contract → Ecto or InMemory (data access)
+  - Port effect → Todos.QueryPort contract → Ecto or InMemory (data access)
   - DB effect → Repo (persistence)
   - Throw effect → error handling
 
@@ -46,7 +46,7 @@ defmodule TodosMcp.Run do
   alias Skuld.Comp
   alias Skuld.Effects.{Command, Port, DB, Fresh, Throw, Reader}
   alias TodosMcp.{Repo, CommandContext}
-  alias TodosMcp.Todos.{Handlers, Repository}
+  alias TodosMcp.Todos.{Handlers, QueryPort}
   alias TodosMcp.Effects.InMemoryPersist
 
   @doc """
@@ -99,13 +99,13 @@ defmodule TodosMcp.Run do
   # Install storage handlers based on mode
   defp with_storage_handlers(comp, :database) do
     comp
-    |> Port.with_handler(%{Repository => Repository.Ecto})
+    |> Port.with_handler(%{QueryPort => QueryPort.Ecto})
     |> DB.Ecto.with_handler(Repo)
   end
 
   defp with_storage_handlers(comp, :in_memory) do
     comp
-    |> Port.with_handler(%{Repository => Repository.InMemory})
+    |> Port.with_handler(%{QueryPort => QueryPort.InMemory})
     |> InMemoryPersist.with_handler()
   end
 

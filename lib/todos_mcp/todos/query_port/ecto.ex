@@ -1,12 +1,12 @@
-defmodule TodosMcp.Todos.Repository.Ecto do
+defmodule TodosMcp.Todos.QueryPort.Ecto do
   @moduledoc """
-  Ecto/Postgres implementation of the Repository port contract.
+  Ecto/Postgres implementation of the QueryPort port contract.
 
   All functions return `{:ok, value}` | `{:error, reason}` result tuples.
   Used by the Port effect handler in production mode.
   """
 
-  @behaviour TodosMcp.Todos.Repository
+  @behaviour TodosMcp.Todos.QueryPort
 
   import Ecto.Query
   alias TodosMcp.Repo

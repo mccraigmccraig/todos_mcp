@@ -9,7 +9,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
   alias Skuld.Effects.{Command, Port, Fresh, Throw, Reader}
   alias Skuld.Effects.DB
   alias TodosMcp.CommandContext
-  alias TodosMcp.Todos.{Handlers, Repository, Todo}
+  alias TodosMcp.Todos.{Handlers, QueryPort, Todo}
 
   # Fixed UUIDs for testing
   @uuid1 "550e8400-e29b-41d4-a716-446655440001"
@@ -32,7 +32,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
 
   # Helper to run operations through the domain handler with stubbed effects.
   # Options:
-  #   - queries: map of Repository.key(:op, ...) => result for Port.with_test_handler
+  #   - queries: map of QueryPort.key(:op, ...) => result for Port.with_test_handler
   #   - persist: function for DB.Test.with_handler
   #   - fresh: keyword opts for Fresh.with_test_handler (e.g., namespace: "test")
   #   - tenant_id: tenant for CommandContext (defaults to @test_tenant)
@@ -89,7 +89,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, todo}, calls} =
         run(%UpdateTodo{id: @uuid1, title: "New Title"},
           queries: %{
-            Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
+            QueryPort.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
           persist: fn %DB.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
@@ -117,7 +117,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, todo}, calls} =
         run(%ToggleTodo{id: @uuid1},
           queries: %{
-            Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
+            QueryPort.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
           persist: fn %DB.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
@@ -141,7 +141,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, deleted}, calls} =
         run(%DeleteTodo{id: @uuid1},
           queries: %{
-            Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
+            QueryPort.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
           persist: fn %DB.Delete{input: s} -> {:ok, s} end
         )
@@ -165,7 +165,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, todo} =
         run(%GetTodo{id: @uuid1},
           queries: %{
-            Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
+            QueryPort.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           }
         )
 
@@ -177,7 +177,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       result =
         run(%GetTodo{id: @uuid_not_found},
           queries: %{
-            Repository.key(:get_todo, @test_tenant, @uuid_not_found) =>
+            QueryPort.key(:get_todo, @test_tenant, @uuid_not_found) =>
               {:error, {:not_found, Todo, @uuid_not_found}}
           }
         )
@@ -210,7 +210,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%ListTodos{},
           queries: %{
-            Repository.key(
+            QueryPort.key(
               :list_todos,
               @test_tenant,
               %{filter: :all, sort_by: :inserted_at, sort_order: :desc}
@@ -247,7 +247,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, result}, calls} =
         run(%CompleteAll{},
           queries: %{
-            Repository.key(:list_incomplete, @test_tenant) => {:ok, incomplete_todos}
+            QueryPort.key(:list_incomplete, @test_tenant) => {:ok, incomplete_todos}
           },
           persist: fn %DB.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
@@ -263,7 +263,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, result}, calls} =
         run(%CompleteAll{},
           queries: %{
-            Repository.key(:list_incomplete, @test_tenant) => {:ok, []}
+            QueryPort.key(:list_incomplete, @test_tenant) => {:ok, []}
           },
           persist: fn %DB.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
@@ -297,7 +297,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, result}, calls} =
         run(%ClearCompleted{},
           queries: %{
-            Repository.key(:list_completed, @test_tenant) => {:ok, completed_todos}
+            QueryPort.key(:list_completed, @test_tenant) => {:ok, completed_todos}
           },
           persist: fn %DB.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
@@ -310,7 +310,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, result}, calls} =
         run(%ClearCompleted{},
           queries: %{
-            Repository.key(:list_completed, @test_tenant) => {:ok, []}
+            QueryPort.key(:list_completed, @test_tenant) => {:ok, []}
           },
           persist: fn %DB.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
@@ -344,7 +344,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%SearchTodos{query: "Buy", limit: 10},
           queries: %{
-            Repository.key(:search_todos, @test_tenant, "Buy", 10) => {:ok, matching_todos}
+            QueryPort.key(:search_todos, @test_tenant, "Buy", 10) => {:ok, matching_todos}
           }
         )
 
@@ -356,7 +356,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%SearchTodos{query: "nonexistent"},
           queries: %{
-            Repository.key(:search_todos, @test_tenant, "nonexistent", 20) => {:ok, []}
+            QueryPort.key(:search_todos, @test_tenant, "nonexistent", 20) => {:ok, []}
           }
         )
 
@@ -369,7 +369,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%GetStats{},
           queries: %{
-            Repository.key(:get_stats, @test_tenant) =>
+            QueryPort.key(:get_stats, @test_tenant) =>
               {:ok, %{total: 10, active: 6, completed: 4}}
           }
         )
@@ -381,8 +381,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {:ok, result} =
         run(%GetStats{},
           queries: %{
-            Repository.key(:get_stats, @test_tenant) =>
-              {:ok, %{total: 0, active: 0, completed: 0}}
+            QueryPort.key(:get_stats, @test_tenant) => {:ok, %{total: 0, active: 0, completed: 0}}
           }
         )
 
