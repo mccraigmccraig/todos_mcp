@@ -7,7 +7,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
   use Skuld.Syntax
   alias Skuld.Comp
   alias Skuld.Effects.{Command, Port, Fresh, Throw, Reader}
-  alias Skuld.Effects.ChangesetPersist
+  alias Skuld.Effects.DB
   alias TodosMcp.CommandContext
   alias TodosMcp.Todos.{Handlers, Repository, Todo}
 
@@ -33,7 +33,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
   # Helper to run operations through the domain handler with stubbed effects.
   # Options:
   #   - queries: map of Repository.key(:op, ...) => result for Port.with_test_handler
-  #   - persist: function for ChangesetPersist.Test.with_handler
+  #   - persist: function for DB.Test.with_handler
   #   - fresh: keyword opts for Fresh.with_test_handler (e.g., namespace: "test")
   #   - tenant_id: tenant for CommandContext (defaults to @test_tenant)
   defp run(operation, opts) do
@@ -48,7 +48,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
     |> then(fn c ->
       if map_size(queries) > 0, do: Port.with_test_handler(c, queries), else: c
     end)
-    |> then(fn c -> if persist, do: ChangesetPersist.Test.with_handler(c, persist), else: c end)
+    |> then(fn c -> if persist, do: DB.Test.with_handler(c, persist), else: c end)
     |> then(fn c -> if fresh, do: Fresh.with_test_handler(c, fresh), else: c end)
     |> Throw.with_handler()
     |> Comp.run!()
@@ -59,7 +59,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
       {{:ok, todo}, calls} =
         run(%CreateTodo{title: "Test Todo", description: "A description"},
           fresh: [namespace: "test-create-todo"],
-          persist: fn %ChangesetPersist.Insert{input: cs} -> Ecto.Changeset.apply_changes(cs) end
+          persist: fn %DB.Insert{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
 
       # ID should be a UUID string (deterministic from namespace)
@@ -91,7 +91,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
           queries: %{
             Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
-          persist: fn %ChangesetPersist.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
+          persist: fn %DB.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
 
       assert todo.id == @uuid1
@@ -119,7 +119,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
           queries: %{
             Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
-          persist: fn %ChangesetPersist.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
+          persist: fn %DB.Update{input: cs} -> Ecto.Changeset.apply_changes(cs) end
         )
 
       assert todo.completed == true
@@ -143,7 +143,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
           queries: %{
             Repository.key(:get_todo, @test_tenant, @uuid1) => {:ok, existing}
           },
-          persist: fn %ChangesetPersist.Delete{input: s} -> {:ok, s} end
+          persist: fn %DB.Delete{input: s} -> {:ok, s} end
         )
 
       assert deleted.id == @uuid1
@@ -249,7 +249,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
           queries: %{
             Repository.key(:list_incomplete, @test_tenant) => {:ok, incomplete_todos}
           },
-          persist: fn %ChangesetPersist.UpdateAll{entries: entries} -> {length(entries), nil} end
+          persist: fn %DB.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
 
       assert result == %{updated: 2}
@@ -265,7 +265,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
           queries: %{
             Repository.key(:list_incomplete, @test_tenant) => {:ok, []}
           },
-          persist: fn %ChangesetPersist.UpdateAll{entries: entries} -> {length(entries), nil} end
+          persist: fn %DB.UpdateAll{entries: entries} -> {length(entries), nil} end
         )
 
       assert result == %{updated: 0}
@@ -299,7 +299,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
           queries: %{
             Repository.key(:list_completed, @test_tenant) => {:ok, completed_todos}
           },
-          persist: fn %ChangesetPersist.DeleteAll{entries: entries} -> {length(entries), nil} end
+          persist: fn %DB.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
 
       assert result == %{deleted: 2}
@@ -312,7 +312,7 @@ defmodule TodosMcp.Todos.HandlersStubTest do
           queries: %{
             Repository.key(:list_completed, @test_tenant) => {:ok, []}
           },
-          persist: fn %ChangesetPersist.DeleteAll{entries: entries} -> {length(entries), nil} end
+          persist: fn %DB.DeleteAll{entries: entries} -> {length(entries), nil} end
         )
 
       assert result == %{deleted: 0}

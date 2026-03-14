@@ -39,7 +39,7 @@ defmodule TodosMcp.CommandProcessor do
 
   require Logger
 
-  alias Skuld.Effects.ChangesetPersist
+  alias Skuld.Effects.DB
   alias Skuld.Effects.Command
   alias Skuld.Effects.Fresh
   alias Skuld.Effects.Port
@@ -129,13 +129,13 @@ defmodule TodosMcp.CommandProcessor do
 
   defp with_storage_handlers(comp, :database) do
     comp
-    |> Port.with_handler(%{Repository.Ecto => :direct})
-    |> ChangesetPersist.Ecto.with_handler(Repo)
+    |> Port.with_handler(%{Repository => Repository.Ecto})
+    |> DB.Ecto.with_handler(Repo)
   end
 
   defp with_storage_handlers(comp, :in_memory) do
     comp
-    |> Port.with_handler(%{Repository.Ecto => {Repository.InMemory, :delegate}})
+    |> Port.with_handler(%{Repository => Repository.InMemory})
     |> InMemoryPersist.with_handler()
   end
 

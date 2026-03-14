@@ -7,7 +7,7 @@ defmodule TodosMcp.CommandProcessorTest do
   end
 
   alias Skuld.AsyncComputation
-  alias Skuld.Comp.Suspend
+  alias Skuld.Comp.ExternalSuspend, as: Suspend
   alias TodosMcp.CommandProcessor
   alias TodosMcp.InMemoryStore
   alias TodosMcp.Todos.Commands.CreateTodo

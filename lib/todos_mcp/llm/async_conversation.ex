@@ -27,7 +27,7 @@ defmodule TodosMcp.Llm.AsyncConversation do
 
   alias Skuld.AsyncComputation
   alias Skuld.Comp.Cancelled
-  alias Skuld.Comp.Suspend
+  alias Skuld.Comp.ExternalSuspend, as: Suspend
   alias Skuld.Comp.Throw, as: ThrowStruct
   alias Skuld.Effects.EffectLogger
   alias TodosMcp.Llm.ConversationComp

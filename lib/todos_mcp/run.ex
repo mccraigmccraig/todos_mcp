@@ -6,7 +6,7 @@ defmodule TodosMcp.Run do
   - Command effect → Todos.Handlers (business logic)
   - Reader effect → CommandContext (tenant isolation)
   - Port effect → Todos.Repository contract → Ecto or InMemory (data access)
-  - ChangesetPersist effect → Repo (persistence)
+  - DB effect → Repo (persistence)
   - Throw effect → error handling
 
   ## Storage Modes
@@ -44,7 +44,7 @@ defmodule TodosMcp.Run do
   use Skuld.Syntax
 
   alias Skuld.Comp
-  alias Skuld.Effects.{Command, Port, ChangesetPersist, Fresh, Throw, Reader}
+  alias Skuld.Effects.{Command, Port, DB, Fresh, Throw, Reader}
   alias TodosMcp.{Repo, CommandContext}
   alias TodosMcp.Todos.{Handlers, Repository}
   alias TodosMcp.Effects.InMemoryPersist
@@ -100,7 +100,7 @@ defmodule TodosMcp.Run do
   defp with_storage_handlers(comp, :database) do
     comp
     |> Port.with_handler(%{Repository => Repository.Ecto})
-    |> ChangesetPersist.Ecto.with_handler(Repo)
+    |> DB.Ecto.with_handler(Repo)
   end
 
   defp with_storage_handlers(comp, :in_memory) do

@@ -19,7 +19,7 @@ defmodule TodosMcpWeb.TodoLive do
   use TodosMcpWeb, :live_view
 
   alias Skuld.AsyncComputation
-  alias Skuld.Comp.Suspend
+  alias Skuld.Comp.ExternalSuspend, as: Suspend
   alias Skuld.Comp.Throw, as: ThrowStruct
   alias TodosMcp.CommandProcessor
   alias TodosMcp.Effects.Transcribe
@@ -644,14 +644,14 @@ defmodule TodosMcpWeb.TodoLive do
               data-selected={Atom.to_string(@api_keys.selected_provider)}
               class="select select-xs bg-base-300 border-base-100 text-base-content min-h-0 h-7 pl-2 pr-6"
             >
-              <%= Phoenix.HTML.Form.options_for_select(
+              {Phoenix.HTML.Form.options_for_select(
                 [
                   {"Claude #{if @api_keys.anthropic, do: "", else: "(no key)"}", "claude"},
                   {"Groq #{if @api_keys.groq, do: "", else: "(no key)"}", "groq"},
                   {"Gemini #{if @api_keys.gemini, do: "", else: "(no key)"}", "gemini"}
                 ],
                 Atom.to_string(@api_keys.selected_provider)
-              ) %>
+              )}
             </select>
           </form>
         </div>
@@ -882,7 +882,8 @@ defmodule TodosMcpWeb.TodoLive do
 
         <div>
           <label for="gemini_api_key" class="block text-sm font-medium text-base-content mb-1">
-            Google AI API Key <span class="text-base-content/40 font-normal">(Gemini - free tier)</span>
+            Google AI API Key
+            <span class="text-base-content/40 font-normal">(Gemini - free tier)</span>
           </label>
           <input
             type="password"

@@ -4,7 +4,7 @@ defmodule TodosMcp.Llm.ConversationCompTest do
   use Skuld.Syntax
 
   alias Skuld.Comp
-  alias Skuld.Comp.Suspend
+  alias Skuld.Comp.ExternalSuspend, as: Suspend
   alias Skuld.Effects.{EffectLogger, Reader, State, Yield, Throw}
   alias TodosMcp.Llm.ConversationComp
   alias TodosMcp.Effects.LlmCall

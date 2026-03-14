@@ -1,8 +1,8 @@
 defmodule TodosMcp.Effects.InMemoryPersist do
   @moduledoc """
-  In-memory persistence handler compatible with ChangesetPersist operations.
+  In-memory persistence handler compatible with DB operations.
 
-  Provides an alternative to `ChangesetPersist.Ecto.with_handler(Repo)` that stores
+  Provides an alternative to `DB.Ecto.with_handler(Repo)` that stores
   data in `TodosMcp.InMemoryStore` instead of a database.
 
   ## Usage
@@ -22,15 +22,15 @@ defmodule TodosMcp.Effects.InMemoryPersist do
   alias Skuld.Comp
   alias Skuld.Comp.Throw, as: ThrowResult
   alias Skuld.Comp.Types
-  alias Skuld.Effects.{ChangesetPersist, ChangeEvent}
+  alias Skuld.Effects.{DB, ChangeEvent}
   alias TodosMcp.InMemoryStore
 
-  @sig ChangesetPersist
+  @sig DB
 
   @doc """
   Install the in-memory persist handler for a computation.
 
-  This replaces `ChangesetPersist.Ecto.with_handler(Repo)` for in-memory operation.
+  This replaces `DB.Ecto.with_handler(Repo)` for in-memory operation.
   """
   @spec with_handler(Types.computation()) :: Types.computation()
   def with_handler(comp) do
@@ -38,7 +38,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
   end
 
   @doc false
-  def handle(%ChangesetPersist.Insert{input: input, opts: _opts}, env, k) do
+  def handle(%DB.Insert{input: input, opts: _opts}, env, k) do
     changeset = extract_changeset(input)
 
     if changeset.valid? do
@@ -50,7 +50,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%ChangesetPersist.Update{input: input, opts: _opts}, env, k) do
+  def handle(%DB.Update{input: input, opts: _opts}, env, k) do
     changeset = extract_changeset(input)
 
     if changeset.valid? do
@@ -62,7 +62,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%ChangesetPersist.Upsert{input: input, opts: _opts}, env, k) do
+  def handle(%DB.Upsert{input: input, opts: _opts}, env, k) do
     changeset = extract_changeset(input)
 
     if changeset.valid? do
@@ -82,7 +82,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%ChangesetPersist.Delete{input: input, opts: _opts}, env, k) do
+  def handle(%DB.Delete{input: input, opts: _opts}, env, k) do
     struct = extract_struct(input)
 
     case InMemoryStore.delete(struct.id) do
@@ -91,7 +91,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%ChangesetPersist.InsertAll{entries: entries, opts: opts}, env, k) do
+  def handle(%DB.InsertAll{entries: entries, opts: opts}, env, k) do
     results =
       Enum.map(entries, fn entry ->
         changeset = extract_changeset(entry)
@@ -116,7 +116,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%ChangesetPersist.UpdateAll{entries: entries, opts: opts}, env, k) do
+  def handle(%DB.UpdateAll{entries: entries, opts: opts}, env, k) do
     # Check for query-based update
     case Keyword.get(opts, :query) do
       nil when entries == [] ->
@@ -153,7 +153,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%ChangesetPersist.UpsertAll{entries: entries, opts: opts}, env, k) do
+  def handle(%DB.UpsertAll{entries: entries, opts: opts}, env, k) do
     results =
       Enum.map(entries, fn entry ->
         changeset = extract_changeset(entry)
@@ -183,7 +183,7 @@ defmodule TodosMcp.Effects.InMemoryPersist do
     end
   end
 
-  def handle(%ChangesetPersist.DeleteAll{entries: entries, opts: opts}, env, k) do
+  def handle(%DB.DeleteAll{entries: entries, opts: opts}, env, k) do
     results =
       Enum.map(entries, fn entry ->
         struct = extract_struct(entry)
